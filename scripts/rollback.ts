@@ -32,8 +32,12 @@ async function main(): Promise<void> {
   const downSql = await readFile(join(dir, downFile), 'utf8')
 
   console.log(`[rollback] reverting ${filename} via ${downFile}`)
-  await pool.unsafe(downSql)
-  await pool`DELETE FROM _migrations WHERE filename = ${filename}`
+  // Same reason as migrate.ts: wrap in tx, .down.sql files must
+  // not include raw BEGIN/COMMIT.
+  await pool.begin(async (tx) => {
+    await tx.unsafe(downSql)
+    await tx`DELETE FROM _migrations WHERE filename = ${filename}`
+  })
 
   console.log(`[rollback] rolled back ${filename}`)
   await closePostgres()

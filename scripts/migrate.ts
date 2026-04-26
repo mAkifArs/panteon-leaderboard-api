@@ -34,8 +34,13 @@ async function main(): Promise<void> {
     if (applied.has(file)) continue
     const sqlText = await readFile(join(dir, file), 'utf8')
     console.log(`[migrate] applying ${file}`)
-    await pool.unsafe(sqlText)
-    await pool`INSERT INTO _migrations (filename) VALUES (${file})`
+    // Wrap each migration in a transaction so a partial failure
+    // rolls back cleanly. postgres.js rejects raw BEGIN/COMMIT
+    // in user SQL, so the .sql files must not include them.
+    await pool.begin(async (tx) => {
+      await tx.unsafe(sqlText)
+      await tx`INSERT INTO _migrations (filename) VALUES (${file})`
+    })
     count++
   }
 

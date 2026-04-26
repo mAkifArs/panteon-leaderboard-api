@@ -17,8 +17,10 @@
 -- or prize_payouts.
 --
 -- Rollback in 0001_initial_schema.down.sql.
-
-BEGIN;
+--
+-- The migration runner (scripts/migrate.ts) wraps each file in
+-- a single transaction via postgres.js's sql.begin(); raw BEGIN
+-- / COMMIT here would conflict with that, so they are omitted.
 
 -- ---------------------------------------------------------------------------
 -- 1. users
@@ -91,5 +93,3 @@ CREATE TABLE prize_payouts (
 COMMENT ON TABLE  prize_payouts                 IS 'Append-only record of prize distributions. Two UNIQUE constraints make double-payouts impossible.';
 COMMENT ON COLUMN prize_payouts.rank            IS 'Final rank (1-100) at distribution time. UNIQUE per week enforces deterministic tie-breaking.';
 COMMENT ON COLUMN prize_payouts.distribution_id IS 'UUID of the cron run that produced this row. Matches Mongo prize_distributions audit doc.';
-
-COMMIT;

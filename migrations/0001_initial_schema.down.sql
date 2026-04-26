@@ -7,12 +7,11 @@
 --
 -- WARNING: this destroys all leaderboard data. Only run in
 -- development or against a known-disposable database.
-
-BEGIN;
+--
+-- Wrapped in a transaction by scripts/rollback.ts — no BEGIN /
+-- COMMIT here.
 
 DROP TABLE IF EXISTS prize_payouts;
 DROP TABLE IF EXISTS earning_events;
 DROP TABLE IF EXISTS weekly_pools;
 DROP TABLE IF EXISTS users;
-
-COMMIT;

@@ -1,0 +1,68 @@
+# Local development stack: Postgres, Redis, MongoDB.
+#
+# Usage:
+#   docker compose up -d        # start all three in background
+#   docker compose ps           # check health
+#   docker compose logs -f      # tail logs
+#   docker compose down         # stop (data persists in volumes)
+#   docker compose down -v      # stop AND wipe data volumes
+#
+# Ports match the defaults in .env.example so `bun run dev` works
+# out of the box once the services are healthy.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: leaderboard-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: leaderboard
+      POSTGRES_PASSWORD: leaderboard
+      POSTGRES_DB: leaderboard
+    # Host port 5433 (not 5432) so we don't collide with a local
+    # brew Postgres if one is running. Inside the container the
+    # default 5432 is unchanged. Update DATABASE_URL accordingly.
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U leaderboard -d leaderboard']
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: leaderboard-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: ['redis-server', '--appendonly', 'yes']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    container_name: leaderboard-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test:
+        ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
+  mongo_data:
