@@ -13,10 +13,12 @@ SQL; this file teaches the rules we commit to here.
 Postgres is the **source of truth** for:
 
 - User identity (`users`)
-- Append-only earnings audit trail (`earning_events`)
+- Append-only earnings audit trail (`earning_events`) — also
+  the registry for idempotency keys, via the `idempotency_key`
+  column with a `UNIQUE` constraint (no separate table; see
+  ADR-004)
 - Prize pool accumulators per week (`weekly_pools`)
 - Prize payouts, one row per winner per week (`prize_payouts`)
-- Idempotency key registry (`idempotency_keys`)
 
 If Redis or Mongo are wiped, the entire system must be
 reconstructable from Postgres alone. Any design that breaks
@@ -56,94 +58,203 @@ history, you've broken replay. `/replay-week` stops working.
 ## Schema conventions
 
 - Primary keys:
-  - `users.id` — UUID v4.
+  - `users.id` — `BIGSERIAL`. The game's user id is stored in
+    `users.external_id` (TEXT UNIQUE).
   - `earning_events.id` — `BIGSERIAL`. Ordered, append-only.
   - `prize_payouts.id` — `BIGSERIAL`.
-  - `weekly_pools.week_bucket` — TEXT primary key, ISO week.
+  - `weekly_pools.iso_week` — TEXT primary key, ISO week.
 - Foreign keys are always explicit, never implicit. `ON DELETE
   RESTRICT` unless there's a documented reason otherwise.
 - Timestamps: `TIMESTAMPTZ`, never `TIMESTAMP WITHOUT TIME
   ZONE`. Server operates in UTC.
-- Week bucket column: always `TEXT NOT NULL` with format
-  `YYYY-WXX`. Indexed alongside user_id.
+- ISO-week column: always `TEXT NOT NULL` with format
+  `YYYY-WXX`, named `iso_week` everywhere. Indexed alongside
+  user_id (see ADR-005 for why we denormalise it).
 
 ## Required indexes
 
 ```sql
-CREATE INDEX ON earning_events (user_id, week_bucket);
-CREATE INDEX ON earning_events (week_bucket, occurred_at);
-CREATE INDEX ON prize_payouts (week_bucket);
-CREATE UNIQUE INDEX ON prize_payouts (week_bucket, user_id);
-CREATE UNIQUE INDEX ON idempotency_keys (key);
+-- earning_events
+CREATE INDEX        ON earning_events (iso_week, user_id);
+CREATE INDEX        ON earning_events (user_id, earned_at);
+CREATE UNIQUE INDEX ON earning_events (idempotency_key);
+
+-- prize_payouts
+CREATE UNIQUE INDEX ON prize_payouts (iso_week, user_id);
+CREATE UNIQUE INDEX ON prize_payouts (iso_week, rank);
+
+-- users
+CREATE UNIQUE INDEX ON users (external_id);
 ```
 
-The `UNIQUE (week_bucket, user_id)` on `prize_payouts` is the
-**final line of defence against double-payouts**. Even if the
-Redis lock fails and the DB transaction lock fails, Postgres
-will reject the second insert with a unique violation.
+The two `UNIQUE` indexes on `prize_payouts` are the **final line
+of defence against double-payouts**. Even if the Redis SETNX
+lock fails and the application status check is bypassed,
+Postgres will reject:
+
+- `UNIQUE (iso_week, user_id)` — a second payout to the same
+  user in the same week.
+- `UNIQUE (iso_week, rank)` — two users assigned the same rank
+  in the same week. This also enforces deterministic
+  tie-breaking — without it, a re-run could pick a different
+  winner for a tied rank.
+
+`UNIQUE (idempotency_key)` on `earning_events` makes duplicate
+POST /earnings requests idempotent at the database level (see
+ADR-004).
+
+## Tie-breaking — deterministic, three-level
+
+When two players have the same weekly total, ranking ties are
+broken by **earliest first earning of that week**, then by
+**smaller `earning_events.id`** as a final fallback. Every
+ranking query in the system uses the same three-level
+`ORDER BY`:
+
+```sql
+SELECT
+  user_id,
+  SUM(amount)                           AS total,
+  MIN(earned_at)                        AS first_earning_at,
+  MIN(id)                               AS first_earning_id
+FROM earning_events
+WHERE iso_week = $1
+GROUP BY user_id
+ORDER BY
+  total              DESC,    -- 1. higher amount wins
+  first_earning_at   ASC,     -- 2. earlier first earning wins
+  first_earning_id   ASC      -- 3. earlier insert wins (microsecond ties)
+LIMIT 100;
+```
+
+**Why three levels:**
+
+- Level 1 (`total DESC`) — the obvious score order.
+- Level 2 (`first_earning_at ASC`) — fairness rule: the player
+  who started earning earlier this week wins. Reflects gameplay
+  engagement, not account age.
+- Level 3 (`first_earning_id ASC`) — `TIMESTAMPTZ` is microsecond-
+  precision; identical timestamps are rare but possible. The
+  monotonic `BIGSERIAL` id breaks the final tie.
+
+**Why this matters beyond fairness:**
+
+- `prize_payouts UNIQUE (iso_week, rank)` requires that every
+  rank maps to exactly one user. Non-deterministic tie-breaking
+  → INSERT conflict on retry → broken cron.
+- `/replay-week` must reproduce the exact same ranking from the
+  same `earning_events` rows. Random or implementation-defined
+  ordering breaks replay determinism, which breaks the audit
+  story.
+
+**Forbidden tie-breakers:**
+
+- `user_id` ASC — gives older accounts permanent advantage.
+- `created_at` ASC — same problem at user level.
+- `RANDOM()` — non-deterministic, breaks replay.
+- Username alphabetical — players have no control, feels arbitrary.
+
+The three-level rule is non-negotiable. If you need to add a
+new ranking query, it uses the same ORDER BY. No exceptions.
 
 ## Transaction patterns
 
-### Read-after-write consistency (earnings endpoint)
+### POST /earnings — idempotent insert + pool increment
 
 ```typescript
 await db.transaction(async (tx) => {
-  // 1. Idempotency check
-  const existing = await tx
-    .insert(idempotencyKeys)
-    .values({ key, requestHash, response: null })
-    .onConflictDoNothing()
+  // 1. Insert the earning row. If the idempotency key already
+  //    exists, ON CONFLICT returns no rows — we treat that as
+  //    "already processed" and return the existing row's data.
+  const inserted = await tx
+    .insert(earningEvents)
+    .values({
+      userId,
+      amount,
+      isoWeek,
+      idempotencyKey,
+      earnedAt: new Date(),
+    })
+    .onConflictDoNothing({ target: earningEvents.idempotencyKey })
     .returning()
-  if (existing.length === 0) {
-    // Already processed; return cached response
-    return await tx.select().from(idempotencyKeys).where(eq(idempotencyKeys.key, key))
+
+  if (inserted.length === 0) {
+    // Replay of an already-processed request. Return the
+    // existing row so the response is identical.
+    const existing = await tx
+      .select()
+      .from(earningEvents)
+      .where(eq(earningEvents.idempotencyKey, idempotencyKey))
+    return existing[0]
   }
 
-  // 2. Insert earning
-  await tx.insert(earningEvents).values({ userId, amount, weekBucket })
-
-  // 3. Increment pool counter
+  // 2. Increment the weekly pool by 2% (BigInt arithmetic).
   await tx
     .insert(weeklyPools)
-    .values({ weekBucket, totalPool: amount * 2n / 100n })
+    .values({ isoWeek, poolAmount: (amount * 2n) / 100n })
     .onConflictDoUpdate({
-      target: weeklyPools.weekBucket,
-      set: { totalPool: sql`${weeklyPools.totalPool} + ${amount * 2n / 100n}` },
+      target: weeklyPools.isoWeek,
+      set: {
+        poolAmount: sql`${weeklyPools.poolAmount} + ${(amount * 2n) / 100n}`,
+      },
     })
 
-  // 4. Cache response for idempotency
-  // ...
+  return inserted[0]
 })
 ```
 
-### Prize distribution (guard row pattern)
+Note: the response itself is not stored. The idempotency
+guarantee is that the *side effects* (the earning row, the pool
+increment) happen exactly once. The response is reconstructed
+from the existing row on replay.
+
+### Prize distribution (status state machine + DB guard)
 
 ```typescript
 await db.transaction(async (tx) => {
-  // Atomic "claim this week for this run"
+  // Atomic "claim this week for distribution".
+  // Only succeeds if status is currently 'open'.
   const claim = await tx
     .update(weeklyPools)
-    .set({ distributedAt: new Date(), distributionRunId: runId })
+    .set({ status: 'distributing' })
     .where(and(
-      eq(weeklyPools.weekBucket, weekBucket),
-      isNull(weeklyPools.distributedAt),
+      eq(weeklyPools.isoWeek, isoWeek),
+      eq(weeklyPools.status, 'open'),
     ))
     .returning()
 
   if (claim.length === 0) {
-    // Another instance already distributed. No-op.
+    // Already distributing or distributed. No-op.
     return
   }
 
-  // Insert all 100 payouts — UNIQUE constraint rejects duplicates
+  // Insert all 100 payouts. UNIQUE (iso_week, user_id) and
+  // UNIQUE (iso_week, rank) reject duplicates if anything
+  // bypasses the status check above.
   await tx.insert(prizePayouts).values(payouts)
+
+  // Close the week.
+  await tx
+    .update(weeklyPools)
+    .set({ status: 'distributed', distributedAt: new Date() })
+    .where(eq(weeklyPools.isoWeek, isoWeek))
 })
 ```
 
-This pattern needs **both the Redis SETNX lock AND the DB
-guard row**. The Redis lock prevents concurrent runs; the DB
-guard makes a concurrent run mathematically impossible even if
-the Redis lock is somehow bypassed.
+This pattern needs **all four layers** for safety:
+
+1. Redis `SETNX` lock — blocks concurrent cron triggers across
+   horizontally-scaled API instances.
+2. `weekly_pools.status = 'open'` check — application-level
+   guard, fast no-op on retry.
+3. `UNIQUE (iso_week, user_id)` — DB-level guard against double
+   payouts to the same user.
+4. `UNIQUE (iso_week, rank)` — DB-level guard against rank
+   collisions, also enforces deterministic tie-breaking.
+
+If layers 1–3 all fail simultaneously (unlikely but possible
+during a botched deploy), layer 4 still rejects the duplicate
+INSERT. We never want to be one bug away from a double payout.
 
 ## Migration rules
 
@@ -173,7 +284,7 @@ All migrations live in `drizzle/`. Rules:
 ```sql
 SELECT user_id, SUM(amount) AS total
 FROM earning_events
-WHERE week_bucket = $1
+WHERE iso_week = $1
 GROUP BY user_id;
 ```
 
@@ -185,9 +296,9 @@ SELECT
   COALESCE(SUM(ee.amount) / 50, 0) AS computed_pool,
   wp.total_pool - (COALESCE(SUM(ee.amount) / 50, 0)) AS drift
 FROM weekly_pools wp
-LEFT JOIN earning_events ee USING (week_bucket)
-WHERE wp.week_bucket = $1
-GROUP BY wp.week_bucket, wp.total_pool;
+LEFT JOIN earning_events ee USING (iso_week)
+WHERE wp.iso_week = $1
+GROUP BY wp.iso_week, wp.total_pool;
 ```
 
 Drift should always be zero. Any non-zero value is an incident.
@@ -195,7 +306,7 @@ Drift should always be zero. Any non-zero value is an incident.
 ## Common bugs to watch for
 
 1. Using `Math.round` or `*` on amounts in JS instead of BigInt.
-2. Forgetting to pass `weekBucket` as `TEXT` — passing a `Date`
+2. Forgetting to pass `isoWeek` as `TEXT` — passing a `Date`
    object produces TZ-dependent string coercion.
 3. N+1 queries — always use joins or `IN (...)` batches for
    multi-row fetches (e.g. "get usernames for top 100 user IDs").

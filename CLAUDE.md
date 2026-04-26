@@ -33,6 +33,14 @@ Break any of these → it is a bug, not a preference.
    process — it fires N times on N instances.
 6. **Idempotency on all write endpoints.** Client supplies
    `Idempotency-Key`; we dedupe on it.
+7. **Tie-breaking is deterministic.** Two players with equal
+   weekly totals are ranked by *earliest first earning timestamp
+   of that week* (ASC). If still tied (same microsecond), fall
+   back to smaller `earning_events.id` (earlier insert wins).
+   Every ranking query — leaderboard, own-rank, prize
+   distribution, replay — uses the same three-level ORDER BY.
+   Required because `prize_payouts UNIQUE (iso_week, rank)` and
+   replay determinism both depend on it.
 
 ## Commands
 
@@ -99,5 +107,18 @@ where I cannot defend a design choice. That is not acceptable.
 ## Commits
 
 - Never add `Co-Authored-By` footers.
-- Always ask before running `git commit`.
 - One decision per commit when possible; one ADR per decision.
+
+### Pre-commit review (mandatory)
+
+Before every `git commit`, show me what's about to land:
+
+1. Stage specific files (never `git add -A` / `git add .`).
+2. Run `git status` and `git diff --cached`.
+3. Present a summary: files, draft commit message, what changes.
+4. Wait for explicit "commit / evet at / tamam at" from me.
+5. Only then run `git commit`.
+
+No exceptions, even for one-line changes. If it's trivial, the
+review is quick — that's fine. The review step is what makes
+AI-assisted work reviewable.
