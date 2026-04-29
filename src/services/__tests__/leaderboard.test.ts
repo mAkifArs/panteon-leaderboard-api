@@ -10,19 +10,21 @@ import {
   getTop,
   getTotalPlayers,
   leaderboardKey,
-} from './leaderboard.ts'
+} from '../leaderboard.ts'
 
 const ISO_WEEK = '2026-W17'
 
 let redis: Redis
 
-beforeEach(() => {
-  // Each test gets a fresh in-memory Redis. ioredis-mock implements
-  // the sorted-set commands we use (ZINCRBY / ZREVRANGE / ZREVRANK
-  // / ZSCORE / ZCARD / DEL) with the same semantics.
+beforeEach(async () => {
+  // ioredis-mock implements the sorted-set commands we use
+  // (ZINCRBY / ZREVRANGE / ZREVRANK / ZSCORE / ZCARD / DEL) with
+  // the same semantics, but instances share one in-memory store
+  // by default — flushall keeps tests isolated.
   // Real-Redis integration tests via testcontainers come in a
   // follow-up commit (see testing-patterns skill).
   redis = new IORedisMock() as unknown as Redis
+  await redis.flushall()
 })
 
 afterEach(async () => {

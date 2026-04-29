@@ -42,6 +42,24 @@ export function toIsoWeek(date: Date): string {
   return `${isoYear}-W${String(weekNumber).padStart(2, '0')}`
 }
 
+export interface IsoWeekRange {
+  /** Monday 00:00:00.000 UTC of the given ISO week. */
+  start: Date
+  /** Sunday 23:59:59.999 UTC of the given ISO week. */
+  end: Date
+}
+
+/**
+ * Inclusive UTC range for an ISO week — Monday 00:00 to Sunday
+ * 23:59:59.999. Used by the leaderboard API meta envelope so the
+ * frontend can render a week-end countdown.
+ */
+export function isoWeekRange(isoWeek: string): IsoWeekRange {
+  const start = isoWeekToMonday(isoWeek)
+  const end = new Date(start.getTime() + 7 * MS_PER_DAY - 1)
+  return { start, end }
+}
+
 /**
  * Parse an ISO week string back into the UTC Date of its Monday
  * (00:00:00 UTC). Inverse of `toIsoWeek` for week starts.

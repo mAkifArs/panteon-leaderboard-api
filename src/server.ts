@@ -1,5 +1,6 @@
 import './plugins/bigint-serializer.ts'
 
+import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { loadEnv } from './config/env.ts'
@@ -7,7 +8,10 @@ import { closeMongo } from './db/mongo.ts'
 import { closePostgres } from './db/postgres.ts'
 import { closeRedis } from './db/redis.ts'
 import { registerErrorHandler } from './plugins/error-handler.ts'
+import { registerEarningsRoutes } from './routes/earnings.ts'
 import { registerHealthRoutes } from './routes/health.ts'
+import { registerLeaderboardRoutes } from './routes/leaderboard.ts'
+import { registerUsersRoutes } from './routes/users.ts'
 
 export async function buildServer(): Promise<FastifyInstance> {
   const env = loadEnv()
@@ -23,9 +27,22 @@ export async function buildServer(): Promise<FastifyInstance> {
     trustProxy: true,
   })
 
+  // CORS — allow the origins listed in CORS_ORIGINS. Use '*' for
+  // dev wide-open. Idempotency-Key is exposed because POST
+  // /earnings reads it from headers.
+  const corsOrigins = env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+  await app.register(cors, {
+    origin: corsOrigins.includes('*') ? true : corsOrigins,
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Idempotency-Key'],
+  })
+
   await app.register(sensible)
   registerErrorHandler(app)
   registerHealthRoutes(app)
+  registerEarningsRoutes(app)
+  registerLeaderboardRoutes(app)
+  registerUsersRoutes(app)
 
   return app
 }

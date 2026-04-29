@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildServer } from './server.ts'
-import './plugins/bigint-serializer.ts'
+import { buildServer } from '../server.ts'
+import '../plugins/bigint-serializer.ts'
 
 // We test the wiring (server boots, routes register, BigInt
 // serialises) without spinning up real PG/Redis/Mongo. Real-DB
 // integration tests come in the testcontainers layer.
-vi.mock('./db/postgres.ts', () => ({
+vi.mock('../db/postgres.ts', () => ({
   pingPostgres: vi.fn(async () => true),
   closePostgres: vi.fn(async () => undefined),
 }))
-vi.mock('./db/redis.ts', () => ({
+vi.mock('../db/redis.ts', () => ({
   pingRedis: vi.fn(async () => true),
   closeRedis: vi.fn(async () => undefined),
 }))
-vi.mock('./db/mongo.ts', () => ({
+vi.mock('../db/mongo.ts', () => ({
   pingMongo: vi.fn(async () => true),
   closeMongo: vi.fn(async () => undefined),
 }))
@@ -53,7 +53,7 @@ describe('server', () => {
   })
 
   it('returns 503 from /health when any check fails', async () => {
-    const { pingRedis } = await import('./db/redis.ts')
+    const { pingRedis } = await import('../db/redis.ts')
     vi.mocked(pingRedis).mockResolvedValueOnce(false)
 
     const app = await buildServer()

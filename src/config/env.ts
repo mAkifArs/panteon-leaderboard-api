@@ -9,6 +9,13 @@ const EnvSchema = z.object({
   REDIS_URL: z.string().url(),
   MONGO_URL: z.string().url(),
   MONGO_DB: z.string().min(1).default('leaderboard'),
+
+  // Comma-separated list of origins allowed by CORS. Use '*' to
+  // allow any origin (dev only). Default covers the local Vite,
+  // CRA, and Next.js dev ports.
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:5173,http://localhost:3000,http://localhost:3001'),
 })
 
 export type Env = z.infer<typeof EnvSchema>
