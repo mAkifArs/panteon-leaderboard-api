@@ -13,28 +13,24 @@ import {
 } from 'drizzle-orm/pg-core'
 
 /**
- * Drizzle schema mirroring `migrations/0001_initial_schema.sql`.
+ * Drizzle schema mirroring the SQL migrations.
  *
- * The SQL file is the source of truth for what runs in the
- * database; this TypeScript schema gives us typed query building
- * via Drizzle ORM. Both must stay in sync — if you change one,
+ * The SQL files in `migrations/` are the source of truth for what
+ * runs in the database; this TypeScript schema gives us typed
+ * query building. Both must stay in sync — if you change one,
  * change the other.
+ *
+ * Note: the `users` table was removed in migration 0002. User
+ * profile data lives in MongoDB — see ADR-007. The `user_id`
+ * columns on `earning_events` and `prize_payouts` are now plain
+ * TEXT holding the upstream external player id, with no FK.
  */
-
-export const users = pgTable('users', {
-  id: bigserial('id', { mode: 'bigint' }).primaryKey(),
-  externalId: text('external_id').notNull().unique(),
-  username: text('username').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-})
 
 export const earningEvents = pgTable(
   'earning_events',
   {
     id: bigserial('id', { mode: 'bigint' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'bigint' })
-      .notNull()
-      .references(() => users.id, { onDelete: 'restrict' }),
+    userId: text('user_id').notNull(),
     amount: bigint('amount', { mode: 'bigint' }).notNull(),
     isoWeek: text('iso_week').notNull(),
     earnedAt: timestamp('earned_at', { withTimezone: true }).notNull().defaultNow(),
@@ -68,9 +64,7 @@ export const prizePayouts = pgTable(
     isoWeek: text('iso_week')
       .notNull()
       .references(() => weeklyPools.isoWeek, { onDelete: 'restrict' }),
-    userId: bigint('user_id', { mode: 'bigint' })
-      .notNull()
-      .references(() => users.id, { onDelete: 'restrict' }),
+    userId: text('user_id').notNull(),
     rank: integer('rank').notNull(),
     amount: bigint('amount', { mode: 'bigint' }).notNull(),
     distributionId: uuid('distribution_id').notNull(),
@@ -84,8 +78,6 @@ export const prizePayouts = pgTable(
   ],
 )
 
-export type User = typeof users.$inferSelect
-export type NewUser = typeof users.$inferInsert
 export type EarningEvent = typeof earningEvents.$inferSelect
 export type NewEarningEvent = typeof earningEvents.$inferInsert
 export type WeeklyPool = typeof weeklyPools.$inferSelect
