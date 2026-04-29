@@ -47,3 +47,6 @@ redis-data/
 .cache/
 .tmp/
 tmp/
+
+# Benchmark output (logs + JSON summaries — reproducible, not committed)
+.bench/

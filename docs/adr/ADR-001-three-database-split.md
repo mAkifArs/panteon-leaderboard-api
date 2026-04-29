@@ -1,16 +1,23 @@
 # ADR-001: Three-database role split — Postgres, Redis, MongoDB
 
-- **Status:** Accepted
+- **Status:** Accepted (revised by ADR-007)
 - **Date:** 2026-04-24
 - **Deciders:** Mehmet Akif Arslan
 - **Tags:** #backend #postgres #redis #mongodb #architecture
 
+> **Note (2026-04-27):** The user placement in this ADR is
+> superseded by ADR-007. Users now live in MongoDB. The
+> three-database split itself stands; only the user-data ownership
+> moves. Read this ADR for the framing of why each database earns
+> its place, then read ADR-007 for the corrected user placement.
+
 ## Context
 
-The brief lists the stack as `Node.js + (MSSQL | Oracle | MySQL) +
-Redis + MongoDB`. Three data systems is a lot for a 10-day case, so
-the natural question is whether all three are load-bearing or whether
-one can be collapsed into another.
+The brief fixes the stack as `Node.js + PostgreSQL + MongoDB +
+Redis` and explicitly says *"your implementation must stay within
+this stack."* Three data systems is a lot for a 10-day case, so
+the natural question is whether all three are load-bearing or
+whether one can be collapsed into another.
 
 The system has three distinct data shapes:
 
@@ -26,12 +33,8 @@ The system has three distinct data shapes:
    it again.
 
 These are three different workloads. Collapsing any two onto one
-engine is possible but wasteful.
-
-I swapped the brief's MSSQL/Oracle/MySQL requirement for
-**Postgres** — same relational semantics, better developer
-ergonomics, better managed-hosting options (Neon). This is the only
-stack substitution in the project.
+engine is possible but wasteful — and dropping any of the three
+would violate the brief's stack constraint.
 
 ## Decision
 
