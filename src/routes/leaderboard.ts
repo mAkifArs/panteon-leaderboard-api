@@ -16,7 +16,9 @@ const TopQuerySchema = z.object({
 })
 
 const UserParamsSchema = z.object({
-  userId: z.string().min(1).max(100),
+  // .trim() matches the normalisation applied on POST /earnings so
+  // " player-1 " and "player-1" hit the same Redis member.
+  userId: z.string().trim().min(1).max(100),
 })
 
 const WeekQuerySchema = z.object({

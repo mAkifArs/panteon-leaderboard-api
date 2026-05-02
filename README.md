@@ -51,6 +51,19 @@ response shapes are defined as Zod schemas at the route handlers in
 [`src/routes/`](src/routes); the frontend mirrors them by hand (see
 [ADR-002](docs/adr/ADR-002-separate-repositories.md)).
 
+## Running tests
+
+```bash
+docker compose up -d          # PG, Redis, Mongo (integration tests need them)
+bun run db:migrate            # apply migrations once
+bun run test                  # vitest, ~114 tests
+```
+
+The `*.integration.test.ts` files (earnings, distribution, whale-end-to-end)
+talk to the live docker-compose stack — Postgres on `:5433`, Redis on `:6379`,
+Mongo on `:27017`. Pure unit tests (`prize-math`, `iso-week`, `redis-bigint`,
+`leaderboard`, `distribution-lock`) need nothing beyond `bun install`.
+
 ## Architecture decisions
 
 Every non-trivial choice is recorded in `docs/adr/`. Read these first:
@@ -202,6 +215,14 @@ on the Actions tab (optionally pass an `isoWeek` input). For
 forensic recovery of a partially-distributed week, see the
 `/replay-week` skill.
 
+> **Before the schedule fires**, set the four required GitHub
+> repository secrets — `DATABASE_URL`, `REDIS_URL`, `MONGO_URL`,
+> `MONGO_DB`. Without them the workflow runs every Monday and
+> fails with a "missing secret" email. Until the deploy is wired
+> up, comment out the `schedule:` block in
+> `.github/workflows/weekly-distribution.yml` and rely on
+> `workflow_dispatch` only.
+
 ## Runbook — Redis after-PG write failures
 
 `POST /earnings` writes Postgres first then best-effort Redis. If
@@ -219,6 +240,12 @@ log structured field: `err`, with `userId`, `isoWeek`,
   affected ISO week — it rebuilds the sorted set + pool counter
   from `earning_events` in minutes and is safe to run while the
   API is serving traffic.
+- A user that retries `POST /earnings` (same `Idempotency-Key`)
+  after their original write hit a Redis failure will see
+  `newRank: null` in the response. PG already has their earning,
+  but the leaderboard sortedset never received it; they reappear
+  after the next successful earning for that user, or after
+  `/rebuild-redis` for the affected ISO week.
 
 Mongo failures on the read path (`/leaderboard/top`,
 `/leaderboard/me`) fall through to the deterministic `Player #<id>`

@@ -5,7 +5,10 @@ import { getRedis } from '../db/redis.ts'
 import { recordEarning } from '../services/earnings.ts'
 
 const BodySchema = z.object({
-  userId: z.string().min(1).max(100),
+  // .trim() prevents silent forking when upstream auth doesn't
+  // normalise — "  player-1  " and "player-1" must hash to the
+  // same row. Empty-after-trim fails min(1) → 400.
+  userId: z.string().trim().min(1).max(100),
   // Amount as a string for BigInt safety. Must parse as a positive
   // BigInt; we re-validate after parse.
   amount: z.string().regex(/^[1-9]\d*$/, 'amount must be a positive integer string'),

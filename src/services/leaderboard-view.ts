@@ -94,8 +94,12 @@ export async function getTopView(
  * For n=3 the picks are ranks { 1, totalPlayers/2, totalPlayers*0.9 }.
  * For other n, picks are evenly spaced across the distribution.
  *
- * Returns rank-ascending. If totalPlayers < n, returns all
- * available users in rank order.
+ * Returns rank-ascending. May return **fewer than `n`** entries:
+ *   - If totalPlayers < n, returns all available users.
+ *   - For n=5 the boundary picks include rank 100; on a small
+ *     leaderboard (totalPlayers < 100) that pick is filtered out
+ *     and the resulting set may shrink to 3-4 entries.
+ * Callers must read `count` from the response, not assume `n`.
  */
 export async function getSampleUsers(
   redis: Redis,
