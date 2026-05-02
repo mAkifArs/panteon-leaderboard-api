@@ -1,0 +1,58 @@
+# Weekly prize distribution cron.
+#
+# Fires every Monday 00:05 UTC — five minutes after the ISO week
+# rolls over. The script is idempotent: if another run already
+# distributed the previous week, this one returns "skipped" and
+# exits 0 (see services/distribution.ts and ADR-003 for the
+# 4-layer safety guarantee).
+#
+# Why GitHub Actions and not node-cron in the app process?
+# CLAUDE.md invariant 5: a horizontally-scaled API would fire
+# node-cron N times per tick. An external scheduler with a single
+# trigger source — combined with the Redis SETNX lock + PG state
+# machine — keeps the "exactly one distribution per week"
+# guarantee provable.
+#
+# Environment secrets required on the repo:
+#   DATABASE_URL  — production Postgres
+#   REDIS_URL     — production Redis
+#   MONGO_URL     — production Mongo
+#   MONGO_DB      — Mongo database name (defaults to "leaderboard")
+#
+# Manual trigger via the workflow_dispatch button is provided for
+# operator-driven re-runs (see /replay-week skill for recovery).
+
+name: weekly-distribution
+
+on:
+  schedule:
+    - cron: '5 0 * * 1' # Mondays 00:05 UTC
+  workflow_dispatch:
+    inputs:
+      isoWeek:
+        description: 'Optional ISO week to distribute (YYYY-WXX). Leave blank for the current week.'
+        required: false
+        default: ''
+
+jobs:
+  distribute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.1'
+
+      - run: bun install --frozen-lockfile
+
+      - name: Run distribution
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          MONGO_URL: ${{ secrets.MONGO_URL }}
+          MONGO_DB: ${{ secrets.MONGO_DB }}
+          NODE_ENV: production
+          LOG_LEVEL: info
+        run: bun run db:distribute ${{ github.event.inputs.isoWeek }}

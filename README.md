@@ -183,3 +183,44 @@ not per request.
 10M is therefore a scale-out exercise, not a scale-up rewrite. The
 single-instance numbers above tell us the per-request cost; multiplying
 that by the replica count gives the throughput envelope.
+
+## Production cron — weekly distribution
+
+The prize-distribution job is intentionally **not** an in-process
+`node-cron` — a horizontally-scaled API would fire it N times per
+tick. The trigger lives outside the app:
+[`.github/workflows/weekly-distribution.yml`](.github/workflows/weekly-distribution.yml)
+runs every Monday 00:05 UTC and invokes `bun run db:distribute`.
+The script is idempotent (Redis SETNX lock + PG state machine +
+`prize_payouts` UNIQUE constraints — see
+[ADR-003](docs/adr/ADR-003-distributed-lock-with-db-guard.md)),
+so even if the workflow accidentally fires twice the second run
+returns `skipped: already-distributed`.
+
+Manual re-run for recovery is via the **workflow_dispatch** button
+on the Actions tab (optionally pass an `isoWeek` input). For
+forensic recovery of a partially-distributed week, see the
+`/replay-week` skill.
+
+## Runbook — Redis after-PG write failures
+
+`POST /earnings` writes Postgres first then best-effort Redis. If
+the Redis write fails after PG has committed, the service logs
+`'redis write failed (PG already committed)'` (event name in the
+log structured field: `err`, with `userId`, `isoWeek`,
+`earningId`). Watch for clusters of this log line:
+
+- A single occurrence is acceptable — the next event for the same
+  user re-converges, and `getCurrentPool` will lazy-backfill the
+  pool counter on the next read.
+- A sustained cluster (more than a handful per minute, or a long
+  Redis outage) means the live leaderboard view has drifted
+  meaningfully from PG. Recovery is `/rebuild-redis` for the
+  affected ISO week — it rebuilds the sorted set + pool counter
+  from `earning_events` in minutes and is safe to run while the
+  API is serving traffic.
+
+Mongo failures on the read path (`/leaderboard/top`,
+`/leaderboard/me`) fall through to the deterministic `Player #<id>`
+fallback username and continue serving — see
+`leaderboard-view.enrichWithProfiles`.

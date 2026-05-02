@@ -195,24 +195,29 @@ export async function runWeeklyDistribution(
       const totalWinners = topRows.length
       const payouts = distributePool(totalPool, totalWinners)
 
-      // Insert payouts row-by-row. The two UNIQUE constraints on
-      // prize_payouts will reject any duplicate from a botched
-      // re-run (defence in depth).
-      for (const payout of payouts) {
+      // Bulk insert all payouts in a single round-trip via a
+      // multi-row VALUES list. Each value is still bound as a
+      // parameter (sql.join over per-row sql fragments) — no
+      // string concatenation, no SQL-injection surface. The two
+      // UNIQUE constraints on prize_payouts will still reject any
+      // duplicate from a botched re-run (defence in depth).
+      const distributedAt = now().toISOString()
+      const valuesRows = payouts.map((payout) => {
         const player = topRows[payout.rank - 1]!
-        await tx.execute(sql`
-          INSERT INTO prize_payouts (
-            iso_week, user_id, rank, amount, distribution_id, distributed_at
-          ) VALUES (
-            ${isoWeek},
-            ${player.user_id},
-            ${payout.rank},
-            ${payout.amount.toString()}::bigint,
-            ${runId}::uuid,
-            ${now().toISOString()}::timestamptz
-          )
-        `)
-      }
+        return sql`(
+          ${isoWeek},
+          ${player.user_id},
+          ${payout.rank},
+          ${payout.amount.toString()}::bigint,
+          ${runId}::uuid,
+          ${distributedAt}::timestamptz
+        )`
+      })
+      await tx.execute(sql`
+        INSERT INTO prize_payouts (
+          iso_week, user_id, rank, amount, distribution_id, distributed_at
+        ) VALUES ${sql.join(valuesRows, sql`, `)}
+      `)
 
       // Close the week.
       await tx.execute(sql`
