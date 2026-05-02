@@ -19,9 +19,16 @@ export function getMongo(): { client: MongoClient; db: Db } {
 }
 
 export async function pingMongo(): Promise<boolean> {
-  const { client } = getMongo()
+  // Ping the application DB, not `admin`. Atlas free-tier credentials
+  // are scoped to the project's database and have no permission to
+  // run commands against `admin` — pinging there returns false in
+  // production even when the cluster is perfectly healthy, which
+  // would make /health 503 and the load balancer mark the instance
+  // as down. Self-hosted Mongo accepts both, so this stays
+  // backwards-compatible with the local docker-compose stack.
+  const { db } = getMongo()
   try {
-    await client.db('admin').command({ ping: 1 })
+    await db.command({ ping: 1 })
     return true
   } catch {
     return false

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { Redis } from 'ioredis'
 import type { Database } from '../db/postgres.ts'
+import { poolKey } from './redis-keys.ts'
 
 /**
  * Read the current weekly pool amount.
@@ -14,9 +15,13 @@ import type { Database } from '../db/postgres.ts'
  * On a cache miss we re-populate Redis from the PG result before
  * returning. Without this lazy backfill every subsequent read on
  * the same week would also miss and hit PG — defeating the point
- * of the cache. This is a read-through pattern; `/rebuild-redis`
- * remains the bulk-recovery tool for when the entire sortedset is
- * gone, but for an isolated key eviction the cache self-heals.
+ * of the cache. The backfill uses **SET NX** so a parallel
+ * `recordEarning` INCRBY that landed between our miss and our
+ * write is not clobbered: NX makes the SET a no-op if the key
+ * already exists, and the INCRBY value is the correct one to keep.
+ * `/rebuild-redis` remains the bulk-recovery tool for when the
+ * entire sortedset is gone; for an isolated key eviction the cache
+ * self-heals here.
  *
  * The PG query clamps the result to >= 0 because correction events
  * with negative amounts could in principle drag a week's net total
@@ -25,8 +30,9 @@ import type { Database } from '../db/postgres.ts'
  * Returns 0n for an empty week.
  */
 export async function getCurrentPool(redis: Redis, db: Database, isoWeek: string): Promise<bigint> {
+  const key = poolKey(isoWeek)
   try {
-    const cached = await redis.get(`pool:week:${isoWeek}`)
+    const cached = await redis.get(key)
     if (cached !== null) {
       return BigInt(cached)
     }
@@ -41,10 +47,11 @@ export async function getCurrentPool(redis: Redis, db: Database, isoWeek: string
   `)
   const pool = BigInt(rows[0]?.pool ?? '0')
 
-  // Lazy backfill — best-effort. If Redis is still down we silently
-  // give up and PG remains correct.
+  // Lazy backfill — best-effort + SET NX. If Redis is still down we
+  // silently give up; if a parallel recordEarning INCRBY beat us to
+  // it, NX preserves that value (it is the correct one).
   try {
-    await redis.set(`pool:week:${isoWeek}`, pool.toString())
+    await redis.set(key, pool.toString(), 'NX')
   } catch {
     // ignore
   }

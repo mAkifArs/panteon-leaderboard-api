@@ -1,5 +1,10 @@
 import type { Redis } from 'ioredis'
 import { bigIntToRedisScore, redisScoreToBigInt } from './redis-bigint.ts'
+import { LEADERBOARD_KEY_PREFIX, leaderboardKey } from './redis-keys.ts'
+
+// Re-export for callers that already import these from this module.
+// The canonical source of truth lives in redis-keys.ts.
+export { LEADERBOARD_KEY_PREFIX, leaderboardKey }
 
 /**
  * Live leaderboard service — wraps a Redis sorted set per ISO week.
@@ -27,12 +32,6 @@ import { bigIntToRedisScore, redisScoreToBigInt } from './redis-bigint.ts'
  * payouts always materialise from PG via the ORDER BY in
  * `runWeeklyDistribution`.
  */
-
-export const LEADERBOARD_KEY_PREFIX = 'lb:week:'
-
-export function leaderboardKey(isoWeek: string): string {
-  return `${LEADERBOARD_KEY_PREFIX}${isoWeek}`
-}
 
 export interface LeaderboardEntry {
   rank: number

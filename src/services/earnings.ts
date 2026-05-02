@@ -4,6 +4,7 @@ import pino from 'pino'
 import type { Database } from '../db/postgres.ts'
 import { toIsoWeek } from '../lib/iso-week.ts'
 import { addEarning, getRank } from './leaderboard.ts'
+import { poolKey } from './redis-keys.ts'
 
 const defaultLogger = pino({ name: 'earnings' })
 
@@ -74,11 +75,6 @@ export interface RecordEarningResult {
    * should fall back to /leaderboard/me.
    */
   newRank: number | null
-}
-
-const POOL_KEY_PREFIX = 'pool:week:'
-function poolKey(isoWeek: string): string {
-  return `${POOL_KEY_PREFIX}${isoWeek}`
 }
 
 interface EarningRow extends Record<string, unknown> {

@@ -5,6 +5,7 @@ import postgres from 'postgres'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as schema from '../../db/schema.ts'
 import { recordEarning } from '../earnings.ts'
+import { poolKey } from '../redis-keys.ts'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 if (!DATABASE_URL) throw new Error('DATABASE_URL must be set')
@@ -128,7 +129,7 @@ describe('recordEarning — idempotency', () => {
 
       // Pool counter still reflects the FIRST insert only (20), not 9999*0.02.
       // 2% of 1000 = 20.
-      const poolValue = await redis.get(`pool:week:${TEST_WEEK}`)
+      const poolValue = await redis.get(poolKey(TEST_WEEK))
       expect(poolValue).toBe('20')
     } finally {
       await cleanupUser(userId)
@@ -239,13 +240,13 @@ describe('recordEarning — pool counter is BigInt-safe past 2^53', () => {
 
       // INCRBY received a decimal string, not a number. This is the
       // bit that prevents IEEE-754 rounding on the way to the server.
-      expect(incrbySpy).toHaveBeenCalledWith(`pool:week:${TEST_WEEK}`, expectedContribution)
+      expect(incrbySpy).toHaveBeenCalledWith(poolKey(TEST_WEEK), expectedContribution)
 
       // Pool counter is read back via GET, never reused from the
       // INCRBY reply. ioredis casts INCRBY's integer reply to a JS
       // Number; GET returns the bulk-string verbatim, so BigInt(...)
       // preserves the full 64-bit value.
-      expect(getSpy).toHaveBeenCalledWith(`pool:week:${TEST_WEEK}`)
+      expect(getSpy).toHaveBeenCalledWith(poolKey(TEST_WEEK))
 
       // PG-side agrees on the underlying earning amount (BIGINT, 2^63 cap).
       const pgRow = await pool<{ amount: string }[]>`

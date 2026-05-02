@@ -28,6 +28,7 @@ import { closePostgres, getPostgres } from '../src/db/postgres.ts'
 import { closeRedis, getRedis } from '../src/db/redis.ts'
 import { toIsoWeek } from '../src/lib/iso-week.ts'
 import { bigIntToRedisScore } from '../src/services/redis-bigint.ts'
+import { leaderboardKey, poolKey } from '../src/services/redis-keys.ts'
 
 // ---------------------------------------------------------------------------
 // Safety guard
@@ -219,7 +220,7 @@ async function wipeWeek(isoWeek: string): Promise<void> {
   await db.execute(sql`DELETE FROM earning_events WHERE iso_week = ${isoWeek}`)
   await db.execute(sql`DELETE FROM weekly_pools   WHERE iso_week = ${isoWeek}`)
 
-  await Promise.all([redis.del(`lb:week:${isoWeek}`), redis.del(`pool:week:${isoWeek}`)])
+  await Promise.all([redis.del(leaderboardKey(isoWeek)), redis.del(poolKey(isoWeek))])
 
   await playerProfiles(mongo).deleteMany({ _id: { $regex: '^seed-' } })
 }
@@ -322,7 +323,7 @@ async function main(): Promise<void> {
   const totalPool = (totalEarnings * 2n) / 100n
 
   // Pipeline ZADDs in chunks of 1000.
-  const lbKey = `lb:week:${isoWeek}`
+  const lbKey = leaderboardKey(isoWeek)
   const entries = [...totalsByUser.entries()]
   for (let i = 0; i < entries.length; i += 1000) {
     const slice = entries.slice(i, i + 1000)
@@ -335,7 +336,7 @@ async function main(): Promise<void> {
     }
     await redis.zadd(lbKey, ...args)
   }
-  await redis.set(`pool:week:${isoWeek}`, totalPool.toString())
+  await redis.set(poolKey(isoWeek), totalPool.toString())
 
   // ---- Summary ----
   const elapsedMs = Date.now() - t0

@@ -29,15 +29,10 @@ import {
 } from '../../test/fixtures/whale.ts'
 import { toIsoWeek } from '../lib/iso-week.ts'
 import { recordEarning } from '../services/earnings.ts'
-import {
-  clearWeek,
-  getOwnRankCluster,
-  getScore,
-  getTop,
-  leaderboardKey,
-} from '../services/leaderboard.ts'
+import { clearWeek, getOwnRankCluster, getScore, getTop } from '../services/leaderboard.ts'
 import { getOwnRankView, getSampleUsers, getTopView } from '../services/leaderboard-view.ts'
 import { getCurrentPool } from '../services/pool.ts'
+import { leaderboardKey, poolKey } from '../services/redis-keys.ts'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const REDIS_URL = process.env['REDIS_URL']
@@ -74,7 +69,7 @@ beforeAll(() => {
 afterAll(async () => {
   await pool`DELETE FROM earning_events WHERE iso_week = ${ISO_WEEK}`
   await clearWeek(redis, ISO_WEEK)
-  await redis.del(`pool:week:${ISO_WEEK}`)
+  await redis.del(poolKey(ISO_WEEK))
   await pool.end({ timeout: 5 })
   redis.disconnect()
 })
@@ -86,7 +81,7 @@ beforeEach(async () => {
   // (production code path) to populate the synthetic week.
   await pool`DELETE FROM earning_events WHERE iso_week = ${ISO_WEEK}`
   await clearWeek(redis, ISO_WEEK)
-  await redis.del(`pool:week:${ISO_WEEK}`)
+  await redis.del(poolKey(ISO_WEEK))
 
   // Whale earning via the production write path (recordEarning).
   // This exercises the addEarning + bigIntToRedisScore boundary
@@ -112,7 +107,7 @@ beforeEach(async () => {
   await redis.zrem(leaderboardKey(realWeek), WHALE_ID)
   // Pool counter — recordEarning wrote to the real week's pool key.
   // For this test we only need the synthetic-week pool to be present.
-  await redis.set(`pool:week:${ISO_WEEK}`, WHALE_POOL_CONTRIBUTION.toString())
+  await redis.set(poolKey(ISO_WEEK), WHALE_POOL_CONTRIBUTION.toString())
 
   // Normal players directly via PG insert + Redis ZADD (this matches
   // what addEarning does but lets us pin amounts and timestamps).
@@ -129,7 +124,7 @@ beforeEach(async () => {
   }
 
   // Pool counter cleanup of the real-week side effect.
-  await redis.del(`pool:week:${toIsoWeek(WHALE_TS)}`)
+  await redis.del(poolKey(toIsoWeek(WHALE_TS)))
   await pool`DELETE FROM earning_events WHERE iso_week = ${toIsoWeek(WHALE_TS)} AND user_id = ${WHALE_ID}`
 })
 
