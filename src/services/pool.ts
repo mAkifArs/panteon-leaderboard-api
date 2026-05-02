@@ -1,7 +1,10 @@
 import { sql } from 'drizzle-orm'
 import type { Redis } from 'ioredis'
+import pino from 'pino'
 import type { Database } from '../db/postgres.ts'
 import { poolKey } from './redis-keys.ts'
+
+const log = pino({ name: 'pool' })
 
 /**
  * Read the current weekly pool amount.
@@ -36,8 +39,10 @@ export async function getCurrentPool(redis: Redis, db: Database, isoWeek: string
     if (cached !== null) {
       return BigInt(cached)
     }
-  } catch {
-    // Fall through to PG.
+  } catch (err) {
+    // Redis transient failure — log so a cluster of these is
+    // visible in operator dashboards, then fall through to PG.
+    log.warn({ err, isoWeek }, 'redis GET failed; falling through to PG')
   }
 
   const rows = await db.execute<{ pool: string | null }>(sql`
@@ -48,12 +53,12 @@ export async function getCurrentPool(redis: Redis, db: Database, isoWeek: string
   const pool = BigInt(rows[0]?.pool ?? '0')
 
   // Lazy backfill — best-effort + SET NX. If Redis is still down we
-  // silently give up; if a parallel recordEarning INCRBY beat us to
+  // log and give up; if a parallel recordEarning INCRBY beat us to
   // it, NX preserves that value (it is the correct one).
   try {
     await redis.set(key, pool.toString(), 'NX')
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err, isoWeek }, 'redis SET NX backfill failed; PG remains correct')
   }
 
   return pool

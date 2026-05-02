@@ -128,8 +128,10 @@ export async function getSampleUsers(
     .filter((r) => r >= 1 && r <= total)
     .sort((a, b) => a - b)
 
-  // ZREVRANGE one entry at a time — n is small (≤ ~10), so a
-  // pipeline is overkill. Each call is sub-ms.
+  // ZREVRANGE one entry at a time, batched into a single Redis
+  // round-trip via pipeline. n is small (≤ ~10) so the pipeline
+  // overhead is negligible — the win is the single RTT instead
+  // of N sequential ones.
   const pipeline = redis.pipeline()
   for (const rank of uniqueRanks) {
     pipeline.zrevrange(leaderboardKey(isoWeek), rank - 1, rank - 1, 'WITHSCORES')

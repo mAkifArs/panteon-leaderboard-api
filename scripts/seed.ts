@@ -283,6 +283,13 @@ async function main(): Promise<void> {
     earned_at: string
     idempotency_key: string
   }[] = []
+
+  async function flushBatch(rows: typeof batch): Promise<void> {
+    await pool`
+      INSERT INTO earning_events ${pool(rows, 'user_id', 'amount', 'iso_week', 'earned_at', 'idempotency_key')}
+    `
+  }
+
   for (const p of players) {
     p.events.forEach((e, idx) => {
       batch.push({
@@ -304,12 +311,6 @@ async function main(): Promise<void> {
     written += batch.length
   }
   console.log(`[seed]   wrote ${written.toLocaleString()} earning_events rows`)
-
-  async function flushBatch(rows: typeof batch): Promise<void> {
-    await pool`
-      INSERT INTO earning_events ${pool(rows, 'user_id', 'amount', 'iso_week', 'earned_at', 'idempotency_key')}
-    `
-  }
 
   // ---- Redis: ZADD totals + INCRBY pool counter ----
   console.log(`[seed] populating redis ZSET + pool counter...`)

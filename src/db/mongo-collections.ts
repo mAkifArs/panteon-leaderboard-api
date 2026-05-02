@@ -85,9 +85,9 @@ export async function ensureMongoIndexes(db: Db = getMongo().db): Promise<void> 
     // case-insensitive lookup index on username for future
     // username-search features (cheap; prepare for the read).
     playerProfiles(db).createIndex({ username: 1 }, { collation: { locale: 'en', strength: 2 } }),
-    // weekly_snapshots._id == isoWeek; the field index on isoWeek
-    // is redundant but explicit, used by the read API.
-    weeklySnapshots(db).createIndex({ isoWeek: 1 }, { unique: true }),
+    // weekly_snapshots: _id IS isoWeek (we set _id = isoWeek on
+    // insert), so the implicit _id_ index already covers lookups
+    // by week — no separate isoWeek index needed.
     // prize_distributions: sort by isoWeek for forensic queries.
     prizeDistributions(db).createIndex({ isoWeek: 1, runAt: -1 }),
   ])

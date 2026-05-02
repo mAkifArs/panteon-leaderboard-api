@@ -24,7 +24,6 @@ export async function buildServer(): Promise<FastifyInstance> {
         ? { transport: { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss.l' } } }
         : {}),
     },
-    disableRequestLogging: false,
     trustProxy: true,
   })
 
