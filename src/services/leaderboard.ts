@@ -3,18 +3,28 @@ import type { Redis } from 'ioredis'
 /**
  * Live leaderboard service — wraps a Redis sorted set per ISO week.
  *
- * Postgres is the source of truth for `earning_events`; Redis here
- * is the derived hot view. Total scores are kept in
+ * Postgres is the source of truth for `earning_events` (ADR-001);
+ * Redis here is the derived hot view. Total scores are kept in
  * `lb:week:<isoWeek>` as a `ZSET` keyed by user id.
  *
- * Tie-breaking: Redis sorts by score DESC. When two users tie on
- * score, ZREVRANGE returns them in lexicographic order of the
- * member key. To match the project's deterministic tie-breaking
- * rule (earliest first earning wins, see CLAUDE.md invariant 7),
- * the canonical leaderboard ranking is computed in Postgres for
- * authoritative views (cron, replay). The Redis view is a fast
- * approximation good enough for in-week reads; the cron always
- * materialises the final ranking from PG before payouts.
+ * **BigInt vs. float reconciliation (CLAUDE.md invariant 1).** Money
+ * is BigInt in PG. Redis sorted-set scores are IEEE-754 doubles —
+ * there is no integer-score variant. We accept this trade-off
+ * because (a) PG is always the authoritative store and (b) the cron
+ * re-materialises the final ranking from PG before any payout, so
+ * float drift in the live view can never affect money. In-week UI
+ * reads are tolerant of sub-coin drift; cron reads are not, and they
+ * never touch Redis. See ADR-001 for the source-of-truth contract
+ * and `/rebuild-redis` for the recovery path.
+ *
+ * **Tie-breaking.** Redis sorts by score DESC, then by lexicographic
+ * member key on ties. The project's deterministic tie-break rule is
+ * `score DESC, first_earning_at ASC, first_earning_id ASC` (CLAUDE.md
+ * invariant 7). These two orderings can disagree on ties, so the
+ * canonical ranking is computed in Postgres for authoritative views
+ * (cron, replay). The Redis view is good enough for in-week reads;
+ * payouts always materialise from PG via the ORDER BY in
+ * `runWeeklyDistribution`.
  */
 
 export const LEADERBOARD_KEY_PREFIX = 'lb:week:'
@@ -37,9 +47,9 @@ export interface OwnRankCluster {
 
 /**
  * Increment a user's running total for the week. Creates the
- * member if it does not exist. Score is stored as a Redis double
- * but our amounts fit safely (in-game coins, well under 2^53 per
- * week per user even for whales).
+ * member if it does not exist. Score is stored as a Redis double:
+ * see the BigInt-vs-float note in the module header — PG remains
+ * the authoritative score, this is the live view only.
  */
 export async function addEarning(
   redis: Redis,

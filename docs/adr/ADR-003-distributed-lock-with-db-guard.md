@@ -91,6 +91,42 @@ tie-breaking at the database level**. CLAUDE.md invariant 7
 specifies the three-level tie-break ORDER BY; this UNIQUE makes
 violating that rule impossible to commit.
 
+## Failure mode: mid-distribution crash
+
+A crash between "claim the week" (status flips to `'distributing'`)
+and "close the week" (status flips to `'distributed'`) leaves the
+row stuck in `'distributing'`. Layer 1's lock will eventually
+expire on TTL, but Layer 2's CAS only flips `'open' → 'distributing'`
+— it will not re-enter a row already in `'distributing'`. So the
+next cron tick reports `skipped: in-flight` indefinitely.
+
+**This is intentional. We do not auto-recover.** Two reasons:
+
+1. **Silent retry can mask money bugs.** If a crash happened
+   *after* some payouts were INSERTed, an automatic re-run that
+   "just retries" would either (a) hit Layer 3/4 constraints and
+   roll back — fine but noisy — or (b) if the retry logic tried
+   to be clever and skip already-paid users, it would now contain
+   double-payout-prevention logic *outside* the constraint layer.
+   That is exactly the place where money bugs hide. Better to
+   stop, page a human, inspect the partial state.
+2. **The constraints make stopping safe.** Even with the row
+   stuck in `'distributing'`, no double-payout can occur on a
+   manual re-run: `UNIQUE (iso_week, user_id)` and
+   `UNIQUE (iso_week, rank)` reject any conflicting INSERT. The
+   worst case is operator inconvenience, not money loss.
+
+Recovery uses the `/replay-week` skill: it recomputes the
+canonical ranking from `earning_events`, diffs against the
+existing `prize_payouts` rows, and reports exactly which ranks
+are missing. The operator then decides whether to insert the
+missing rows by hand (and flip the row to `'distributed'`) or
+to roll back the partial payouts and re-run cleanly. Both paths
+are documented and both are constraint-safe.
+
+Auto-recovery is a future ADR if and when operational data shows
+crash frequency justifies it. At case-study scale it does not.
+
 ## Consequences
 
 ### Positive
@@ -111,8 +147,9 @@ violating that rule impossible to commit.
   skills documenting them).
 - Failure modes shift: instead of "did the cron run?", the question
   becomes "which layer caught it, and is the row in 'distributing'
-  state requiring manual cleanup?". `/replay-week` is the recovery
-  tool.
+  state requiring manual cleanup?". See **Failure mode: mid-
+  distribution crash** above for why this trade-off is intentional;
+  `/replay-week` is the recovery tool.
 
 ### Neutral
 

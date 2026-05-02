@@ -77,8 +77,11 @@ We use **three databases, each with a single primary responsibility:**
   Atlas).
 - Dual-write ordering matters: PG first, then Redis. If Redis write
   fails after PG commit, the cache is stale until the next event for
-  that player or a manual rebuild. This failure mode is accepted and
-  documented in the upcoming ADR-002 (dual-write ordering).
+  that player or a manual rebuild via `/rebuild-redis`. This failure
+  mode is accepted: PG remains correct, the cache self-heals on the
+  next earning event for that user, and the rebuild path is one
+  command away. The `recordEarning` service logs the Redis failure
+  with `req.log.error` but does not propagate it to the client.
 - More onboarding surface for anyone joining the project.
 
 ### Neutral
@@ -126,5 +129,5 @@ me.
 ## References
 
 - `docs/case/case-en.html` — stack requirement (§3, infrastructure).
-- ADR-002 (forthcoming) — dual-write ordering: PG first, then Redis.
-- ADR-003 (forthcoming) — distributed lock on the prize cron.
+- ADR-003 — distributed lock on the prize cron.
+- ADR-007 — supersedes the user-placement decision in this ADR.

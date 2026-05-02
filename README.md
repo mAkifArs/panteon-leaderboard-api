@@ -46,8 +46,10 @@ bun run dev
 ```
 
 `POST /earnings`, `GET /leaderboard/top`, `GET /leaderboard/current/:userId`.
-BigInt money is serialised as decimal strings — never floats. Full contract
-in [`docs/api.md`](docs/api.md) (TODO).
+BigInt money is serialised as decimal strings — never floats. Request /
+response shapes are defined as Zod schemas at the route handlers in
+[`src/routes/`](src/routes); the frontend mirrors them by hand (see
+[ADR-002](docs/adr/ADR-002-separate-repositories.md)).
 
 ## Architecture decisions
 
