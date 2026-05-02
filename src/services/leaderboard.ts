@@ -70,7 +70,7 @@ export async function getScore(
   userId: string,
 ): Promise<bigint | null> {
   const raw = await redis.zscore(leaderboardKey(isoWeek), userId)
-  return raw === null ? null : BigInt(raw)
+  return raw === null ? null : redisScoreToBigInt(raw)
 }
 
 /**
@@ -169,8 +169,23 @@ function decodeRangeWithScores(raw: string[], startingRank: number): Leaderboard
     entries.push({
       rank: startingRank + i / 2,
       userId,
-      score: BigInt(scoreStr),
+      score: redisScoreToBigInt(scoreStr),
     })
   }
   return entries
+}
+
+/**
+ * Convert a Redis sorted-set score (always serialised as a decimal
+ * or scientific-notation double, e.g. "1000", "5e+18", "12345.5")
+ * to a BigInt. We round to the nearest integer because the Redis
+ * score is already an IEEE-754 double — sub-coin drift past 2^53
+ * is documented and tolerated in this layer (see module header).
+ *
+ * `BigInt(scoreStr)` would crash on scientific notation; this
+ * parses via Number first, which Redis's textual representation
+ * always round-trips into.
+ */
+function redisScoreToBigInt(scoreStr: string): bigint {
+  return BigInt(Math.round(Number(scoreStr)))
 }

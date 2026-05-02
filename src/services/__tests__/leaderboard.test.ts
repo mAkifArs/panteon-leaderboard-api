@@ -54,6 +54,16 @@ describe('addEarning + getScore', () => {
   it('returns null for a player who has not earned this week', async () => {
     expect(await getScore(redis, ISO_WEEK, 'unknown')).toBeNull()
   })
+
+  it('parses scientific-notation scores from Redis (>2^53)', async () => {
+    // Redis ZSCORE for very large totals comes back as e.g. "5e+18"
+    // because the score is an IEEE-754 double. BigInt cannot parse
+    // that form directly; we fall through Number first. Sub-coin
+    // drift here is the documented trade-off in the module header.
+    await redis.zadd(`lb:week:${ISO_WEEK}`, 5e18, 'whale')
+    const score = await getScore(redis, ISO_WEEK, 'whale')
+    expect(score).toBe(5_000_000_000_000_000_000n)
+  })
 })
 
 describe('getRank', () => {
