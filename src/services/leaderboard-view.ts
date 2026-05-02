@@ -1,5 +1,6 @@
 import type { Db } from 'mongodb'
 import type { Redis } from 'ioredis'
+import pino from 'pino'
 import { playerProfiles, type PlayerProfileDoc } from '../db/mongo-collections.ts'
 import {
   getOwnRankCluster,
@@ -36,6 +37,8 @@ export interface OwnRankView {
   cluster: ViewEntry[]
 }
 
+const log = pino({ name: 'leaderboard-view' })
+
 function fallbackUsername(userId: string): string {
   return `Player #${userId.slice(0, 8)}`
 }
@@ -46,9 +49,22 @@ async function enrichWithProfiles(
 ): Promise<ViewEntry[]> {
   if (entries.length === 0) return []
   const ids = entries.map((e) => e.userId)
-  const cursor = playerProfiles(mongo).find({ _id: { $in: ids } })
-  const docs: PlayerProfileDoc[] = await cursor.toArray()
-  const byId = new Map(docs.map((d) => [d._id, d]))
+
+  // Mongo failure must not take down the leaderboard read path —
+  // the rank/score data is already in hand from Redis. We log,
+  // map every entry through the deterministic fallback username,
+  // and let the response render. This mirrors the Redis-after-PG
+  // tolerance on the write path: each store fails independently.
+  let byId = new Map<string, PlayerProfileDoc>()
+  try {
+    const docs: PlayerProfileDoc[] = await playerProfiles(mongo)
+      .find({ _id: { $in: ids } })
+      .toArray()
+    byId = new Map(docs.map((d) => [d._id, d]))
+  } catch (err) {
+    log.error({ err, count: ids.length }, 'mongo profile lookup failed; using fallback usernames')
+  }
+
   return entries.map((e) => {
     const doc = byId.get(e.userId)
     const country = doc?.country
