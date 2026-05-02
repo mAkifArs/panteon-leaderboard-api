@@ -224,3 +224,22 @@ Mongo failures on the read path (`/leaderboard/top`,
 `/leaderboard/me`) fall through to the deterministic `Player #<id>`
 fallback username and continue serving — see
 `leaderboard-view.enrichWithProfiles`.
+
+## Mental model — where is the live pool number?
+
+`weekly_pools.pool_amount` in Postgres is **0 throughout the week**
+and only gets populated when the cron runs at week close. The live
+in-week pool counter — what the UI shows — lives in Redis at
+`pool:week:<isoWeek>`, incremented on every earning event. If you
+inspect the Postgres row mid-week and see 0, that is correct, not
+a bug. The cron computes the final amount from
+`SUM(earning_events.amount) * 2 / 100` and writes it into
+`pool_amount` as part of the same transaction that produces
+`prize_payouts`.
+
+Why split: the in-week counter is hot (one write per earning) and
+gets read on every leaderboard render — it belongs in Redis. The
+audit value is cold (one write per week) and needs ACID
+guarantees alongside the payout rows — it belongs in Postgres.
+`getCurrentPool` (`src/services/pool.ts`) prefers Redis and falls
+through to a `SUM(...)` on PG when the cache key is missing.

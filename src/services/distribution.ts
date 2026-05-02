@@ -116,6 +116,13 @@ export async function runWeeklyDistribution(
     //    - Insert payouts
     //    - Mark distributed
     const result: TxOutcome = await db.transaction(async (tx): Promise<TxOutcome> => {
+      // One timestamp pinned at the start of the transaction; we
+      // use it for both the row-level distributed_at and the
+      // weekly_pools.distributed_at update so the audit trail is
+      // internally consistent. Without this, three separate now()
+      // calls inside the same tx would produce three slightly
+      // different timestamps.
+      const txStartedAt = now().toISOString()
       // Atomic CAS: only succeeds if the week is currently 'open'.
       // If the row doesn't exist (no earnings this week), we'll
       // create it here in 'distributing' state. If it exists with
@@ -156,7 +163,7 @@ export async function runWeeklyDistribution(
         // so the cron doesn't keep retrying.
         await tx.execute(sql`
           UPDATE weekly_pools
-          SET status = 'distributed', distributed_at = ${now().toISOString()}::timestamptz, pool_amount = 0
+          SET status = 'distributed', distributed_at = ${txStartedAt}::timestamptz, pool_amount = 0
           WHERE iso_week = ${isoWeek}
         `)
         return { status: 'skipped', reason: 'no-earnings' }
@@ -198,7 +205,6 @@ export async function runWeeklyDistribution(
       // string concatenation, no SQL-injection surface. The two
       // UNIQUE constraints on prize_payouts will still reject any
       // duplicate from a botched re-run (defence in depth).
-      const distributedAt = now().toISOString()
       const valuesRows = payouts.map((payout) => {
         const player = topRows[payout.rank - 1]!
         return sql`(
@@ -207,7 +213,7 @@ export async function runWeeklyDistribution(
           ${payout.rank},
           ${payout.amount.toString()}::bigint,
           ${runId}::uuid,
-          ${distributedAt}::timestamptz
+          ${txStartedAt}::timestamptz
         )`
       })
       await tx.execute(sql`
@@ -219,7 +225,7 @@ export async function runWeeklyDistribution(
       // Close the week.
       await tx.execute(sql`
         UPDATE weekly_pools
-        SET status = 'distributed', distributed_at = ${now().toISOString()}::timestamptz
+        SET status = 'distributed', distributed_at = ${txStartedAt}::timestamptz
         WHERE iso_week = ${isoWeek}
       `)
 

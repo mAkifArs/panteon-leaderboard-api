@@ -88,8 +88,17 @@ async function main(): Promise<void> {
     }
   }
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'))
-  process.on('SIGINT', () => void shutdown('SIGINT'))
+  // shutdown() handles its own try/catch + process.exit, so the
+  // promise it returns should never reject in practice. The .catch
+  // is defence in depth: if shutdown ever throws synchronously
+  // (e.g. logger write failing during shutdown itself) we still
+  // exit non-zero rather than leak an unhandled rejection.
+  process.on('SIGTERM', () => {
+    shutdown('SIGTERM').catch(() => process.exit(1))
+  })
+  process.on('SIGINT', () => {
+    shutdown('SIGINT').catch(() => process.exit(1))
+  })
 
   try {
     await app.listen({ port: env.PORT, host: '0.0.0.0' })

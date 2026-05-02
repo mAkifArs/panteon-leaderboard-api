@@ -125,3 +125,41 @@ describe('GET /leaderboard/me/:userId', () => {
     expect(body.meta.pool).toBe('7')
   })
 })
+
+describe('GET /leaderboard/current/:userId', () => {
+  it('200 with top + me + meta in a single envelope', async () => {
+    getTopViewMock.mockResolvedValueOnce([
+      { rank: 1, userId: 'u1', score: 1000n, username: 'One' },
+    ])
+    getOwnRankViewMock.mockResolvedValueOnce({
+      rank: 5,
+      totalPlayers: 50,
+      cluster: [{ rank: 5, userId: 'u5', score: 500n, username: 'Five' }],
+    })
+    getCurrentPoolMock.mockResolvedValueOnce(42n)
+
+    const res = await app.inject({ method: 'GET', url: '/leaderboard/current/u5' })
+    expect(res.statusCode).toBe(200)
+    const body = bodyOf<{
+      meta: { pool: string }
+      top: { count: number; entries: { score: string }[] }
+      me: { rank: number; cluster: { score: string }[] } | null
+    }>(res)
+    expect(body.meta.pool).toBe('42')
+    expect(body.top.count).toBe(1)
+    expect(body.top.entries[0]?.score).toBe('1000')
+    expect(body.me?.rank).toBe(5)
+    expect(body.me?.cluster[0]?.score).toBe('500')
+  })
+
+  it('200 with me=null when the user has no earnings this week', async () => {
+    getTopViewMock.mockResolvedValueOnce([])
+    getOwnRankViewMock.mockResolvedValueOnce(null)
+    getCurrentPoolMock.mockResolvedValueOnce(0n)
+
+    const res = await app.inject({ method: 'GET', url: '/leaderboard/current/ghost' })
+    expect(res.statusCode).toBe(200)
+    const body = bodyOf<{ me: unknown }>(res)
+    expect(body.me).toBeNull()
+  })
+})

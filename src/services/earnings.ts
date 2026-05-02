@@ -4,6 +4,7 @@ import pino from 'pino'
 import type { Database } from '../db/postgres.ts'
 import { toIsoWeek } from '../lib/iso-week.ts'
 import { addEarning, getRank } from './leaderboard.ts'
+import { getCurrentPool } from './pool.ts'
 import { poolKey } from './redis-keys.ts'
 
 const defaultLogger = pino({ name: 'earnings' })
@@ -167,12 +168,19 @@ export async function recordEarning(
       )
     }
   } else {
+    // Replay path: a previous request already wrote to PG and
+    // (best-effort) Redis. We still want to return a meaningful
+    // pool + rank to the client, so we use getCurrentPool — which
+    // self-heals on Redis miss by falling through to PG and SET NX
+    // backfill (see pool.ts). getRank may legitimately return null
+    // if the user is not in the live ZSET (Redis wipe, eviction);
+    // frontend treats null as "fall back to /leaderboard/me".
     try {
-      const [current, rank] = await Promise.all([
-        redis.get(poolKey(isoWeek)),
+      const [poolFromService, rank] = await Promise.all([
+        getCurrentPool(redis, db, isoWeek),
         getRank(redis, isoWeek, earning.user_id),
       ])
-      poolAmount = current === null ? 0n : BigInt(current)
+      poolAmount = poolFromService
       newRank = rank
     } catch {
       poolAmount = 0n
