@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       isoWeek:
-        description: 'Optional ISO week to distribute (YYYY-WXX). Leave blank for the current week.'
+        description: 'Optional ISO week to distribute (YYYY-WXX). Leave blank for the previous week (the Mon-Sun that just closed).'
         required: false
         default: ''
 
