@@ -136,6 +136,79 @@ describe('recordEarning — idempotency', () => {
   })
 })
 
+describe('recordEarning — idempotency scope is per-user (ADR-009)', () => {
+  it('two different users sending the same key get two distinct rows', async () => {
+    const userA = uniqueUserId()
+    const userB = uniqueUserId()
+    const sharedKey = `shared-${Date.now()}`
+    try {
+      const a = await recordEarning(db, redis, {
+        userId: userA,
+        amount: 1000n,
+        idempotencyKey: sharedKey,
+        now: new Date('2026-07-22T12:00:00Z'),
+      })
+      const b = await recordEarning(db, redis, {
+        userId: userB,
+        amount: 7777n,
+        idempotencyKey: sharedKey,
+        now: new Date('2026-07-22T12:00:00Z'),
+      })
+
+      // Neither is a replay of the other — different namespaces.
+      expect(a.earning.isReplay).toBe(false)
+      expect(b.earning.isReplay).toBe(false)
+
+      // Each user gets their own row with their own amount.
+      expect(a.earning.userId).toBe(userA)
+      expect(a.earning.amount).toBe(1000n)
+      expect(b.earning.userId).toBe(userB)
+      expect(b.earning.amount).toBe(7777n)
+      expect(a.earning.id).not.toBe(b.earning.id)
+
+      // Verify in PG: two rows share the key but on different users.
+      const rows = await pool<{ user_id: string; amount: string }[]>`
+        SELECT user_id, amount::text FROM earning_events
+        WHERE idempotency_key = ${sharedKey}
+        ORDER BY user_id
+      `
+      expect(rows).toHaveLength(2)
+      const byUser = new Map(rows.map((r) => [r.user_id, r.amount]))
+      expect(byUser.get(userA)).toBe('1000')
+      expect(byUser.get(userB)).toBe('7777')
+    } finally {
+      await cleanupUser(userA)
+      await cleanupUser(userB)
+    }
+  })
+
+  it('same user + same key is still a replay (dedup intact within scope)', async () => {
+    const userId = uniqueUserId()
+    const key = `same-${Date.now()}`
+    try {
+      const first = await recordEarning(db, redis, {
+        userId,
+        amount: 500n,
+        idempotencyKey: key,
+        now: new Date('2026-07-22T12:00:00Z'),
+      })
+      const second = await recordEarning(db, redis, {
+        userId,
+        amount: 9999n,
+        idempotencyKey: key,
+        now: new Date('2026-07-22T12:01:00Z'),
+      })
+
+      expect(first.earning.isReplay).toBe(false)
+      expect(second.earning.isReplay).toBe(true)
+      expect(second.earning.id).toBe(first.earning.id)
+      expect(second.earning.amount).toBe(500n)
+    } finally {
+      await cleanupUser(userId)
+    }
+  })
+})
+
 describe('recordEarning — multiple events accumulate', () => {
   it('two earnings from the same user accumulate in PG and Redis', async () => {
     const userId = uniqueUserId()

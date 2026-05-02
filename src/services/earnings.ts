@@ -1,16 +1,23 @@
 import { sql } from 'drizzle-orm'
 import type { Redis } from 'ioredis'
+import pino from 'pino'
 import type { Database } from '../db/postgres.ts'
 import { toIsoWeek } from '../lib/iso-week.ts'
 import { addEarning, getRank } from './leaderboard.ts'
+
+const defaultLogger = pino({ name: 'earnings' })
+
+export type EarningsLogger = Pick<pino.BaseLogger, 'error' | 'warn' | 'info'>
 
 /**
  * POST /earnings service.
  *
  * Records a single earning event. Sequence:
  *   1. PG: INSERT earning_events with ON CONFLICT
- *      (idempotency_key) DO NOTHING. Idempotency lives at the
- *      database level (ADR-004).
+ *      (user_id, idempotency_key) DO NOTHING. Idempotency lives at
+ *      the database level (ADR-004) and its scope is per-user
+ *      (ADR-009) — two clients picking the same key by coincidence
+ *      get two distinct rows, neither sees the other's data.
  *   2. After commit: best-effort Redis update — ZINCRBY on the
  *      leaderboard sorted set, INCRBY on the live pool counter.
  *      Redis is the *derived* layer (ADR-001); a Redis write
@@ -33,6 +40,8 @@ export interface RecordEarningInput {
   idempotencyKey: string
   /** Optional override for testability. */
   now?: Date
+  /** Logger to use; defaults to a pino instance named 'earnings'. */
+  logger?: EarningsLogger
 }
 
 export interface RecordEarningResult {
@@ -77,9 +86,11 @@ export async function recordEarning(
 ): Promise<RecordEarningResult> {
   const earnedAt = input.now ?? new Date()
   const isoWeek = toIsoWeek(earnedAt)
+  const logger = input.logger ?? defaultLogger
 
-  // ON CONFLICT (idempotency_key) DO NOTHING + RETURNING tells us
-  // whether this is a fresh write or a replay.
+  // ON CONFLICT (user_id, idempotency_key) DO NOTHING + RETURNING
+  // tells us whether this is a fresh write or a replay. Per-user
+  // scope per ADR-009.
   const inserted = await db.execute<EarningRow>(sql`
     INSERT INTO earning_events (
       user_id, amount, iso_week, earned_at, idempotency_key
@@ -90,7 +101,7 @@ export async function recordEarning(
       ${earnedAt.toISOString()}::timestamptz,
       ${input.idempotencyKey}
     )
-    ON CONFLICT (idempotency_key) DO NOTHING
+    ON CONFLICT (user_id, idempotency_key) DO NOTHING
     RETURNING id::text, user_id, amount::text, iso_week, earned_at
   `)
 
@@ -103,7 +114,8 @@ export async function recordEarning(
     const existing = await db.execute<EarningRow>(sql`
       SELECT id::text, user_id, amount::text, iso_week, earned_at
       FROM earning_events
-      WHERE idempotency_key = ${input.idempotencyKey}
+      WHERE user_id = ${input.userId}
+        AND idempotency_key = ${input.idempotencyKey}
     `)
     earning = existing[0]!
     isReplay = true
@@ -130,7 +142,10 @@ export async function recordEarning(
     } catch (err) {
       // Log but do not propagate — PG is the source of truth and
       // rebuild-redis can re-derive Redis state from PG.
-      console.error('[earnings] redis write failed:', (err as Error).message)
+      logger.error(
+        { err, userId: earning.user_id, isoWeek, earningId: earning.id },
+        'redis write failed (PG already committed)',
+      )
     }
   } else {
     try {

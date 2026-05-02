@@ -34,11 +34,15 @@ export const earningEvents = pgTable(
     amount: bigint('amount', { mode: 'bigint' }).notNull(),
     isoWeek: text('iso_week').notNull(),
     earnedAt: timestamp('earned_at', { withTimezone: true }).notNull().defaultNow(),
-    idempotencyKey: text('idempotency_key').notNull().unique(),
+    idempotencyKey: text('idempotency_key').notNull(),
   },
   (t) => [
     index('earning_events_iso_week_user_id_idx').on(t.isoWeek, t.userId),
     index('earning_events_user_id_earned_at_idx').on(t.userId, t.earnedAt),
+    // Per-user idempotency scope (ADR-009). Two clients may pick
+    // the same key by coincidence; dedup applies within a user,
+    // not across the table.
+    unique('earning_events_user_id_idempotency_key_key').on(t.userId, t.idempotencyKey),
     check('earning_events_amount_check', sql`${t.amount} <> 0`),
   ],
 )

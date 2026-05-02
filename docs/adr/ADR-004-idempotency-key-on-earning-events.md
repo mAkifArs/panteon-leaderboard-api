@@ -1,9 +1,17 @@
 # ADR-004: Idempotency key as a column on `earning_events`, not a separate table
 
-- **Status:** Accepted
+- **Status:** Accepted (uniqueness scope revised by ADR-009)
 - **Date:** 2026-04-26
 - **Deciders:** Mehmet Akif Arslan
 - **Tags:** #backend #postgres #idempotency #money-safety
+
+> **Note (2026-05-02):** The placement decision in this ADR — the
+> idempotency key lives on `earning_events`, not in a side table —
+> still stands. The **uniqueness scope** documented below (global
+> UNIQUE on `idempotency_key` alone) is superseded by ADR-009, which
+> moves it to a compound UNIQUE on `(user_id, idempotency_key)`.
+> Read this ADR for the placement rationale, then ADR-009 for the
+> corrected scope.
 
 ## Context
 
