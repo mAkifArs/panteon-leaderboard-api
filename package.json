@@ -19,6 +19,7 @@
     "db:migrate": "bun run scripts/migrate.ts",
     "db:rollback": "bun run scripts/rollback.ts",
     "db:distribute": "bun run scripts/distribute.ts",
+    "check:last-week": "bun run scripts/check-last-week.ts",
     "seed": "bun run scripts/seed.ts"
   },
   "dependencies": {

@@ -1,0 +1,53 @@
+# Weekly distribution watchdog (ADR-011).
+#
+# Fires every Monday 01:05 UTC — one hour after the distribution
+# cron (`weekly-distribution.yml`, Mon 00:05 UTC). Asks Postgres a
+# single read-only question: did the previous ISO week reach
+# `weekly_pools.status = 'distributed'`? If not, the script exits
+# non-zero and GitHub Actions sends the standard failure email,
+# the same notification path operators already watch for
+# distribution failures.
+#
+# Why a separate workflow (not a `needs:` job on the distribution
+# workflow): if distribution fails to even start (cron miss, runner
+# kill), the chained job would never run — exactly the scenario
+# the watchdog is meant to catch. Independent schedule, independent
+# trigger.
+#
+# Secret surface is intentionally minimal: only DATABASE_URL.
+# Watchdog never touches Redis or Mongo.
+#
+# Manual trigger via the workflow_dispatch button is provided for
+# forensic checks (optionally pass an `isoWeek` input).
+
+name: weekly-distribution-watchdog
+
+on:
+  schedule:
+    - cron: '5 1 * * 1' # Mondays 01:05 UTC — distribution + 1 hour
+  workflow_dispatch:
+    inputs:
+      isoWeek:
+        description: 'Optional ISO week to check (YYYY-WXX). Leave blank for the previous week.'
+        required: false
+        default: ''
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.1'
+
+      - run: bun install --frozen-lockfile
+
+      - name: Check last week's distribution
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: production
+          LOG_LEVEL: info
+        run: bun run check:last-week ${{ github.event.inputs.isoWeek }}

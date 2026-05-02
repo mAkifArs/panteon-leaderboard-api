@@ -78,6 +78,7 @@ Every non-trivial choice is recorded in `docs/adr/`. Read these first:
 - [ADR-008 — Polling over WebSocket](docs/adr/ADR-008-polling-over-websocket.md)
 - [ADR-009 — Idempotency-Key scope per user](docs/adr/ADR-009-idempotency-key-scope-per-user.md)
 - [ADR-010 — Per-endpoint rate limits](docs/adr/ADR-010-per-endpoint-rate-limits.md)
+- [ADR-011 — Distribution watchdog](docs/adr/ADR-011-distribution-watchdog.md)
 
 ## Rate limits
 
@@ -243,6 +244,26 @@ forensic recovery of a partially-distributed week, see the
 > up, comment out the `schedule:` block in
 > `.github/workflows/weekly-distribution.yml` and rely on
 > `workflow_dispatch` only.
+
+### Watchdog
+
+A second workflow,
+[`weekly-distribution-watchdog.yml`](.github/workflows/weekly-distribution-watchdog.yml),
+fires every **Monday 01:05 UTC** (one hour after distribution) and
+asks Postgres a single read-only question: did the previous ISO
+week reach `weekly_pools.status = 'distributed'`? If not, it
+exits non-zero and GitHub Actions sends the standard failure
+email — covering the silent failure modes the distribution job's
+own exit code cannot (runner kill, mid-run crash with status
+stuck in `'distributing'`, scheduler miss). Full reasoning in
+[ADR-011](docs/adr/ADR-011-distribution-watchdog.md).
+
+Manual forensic check:
+```bash
+bun run check:last-week 2026-W17     # exit 0 if distributed, 1 otherwise
+```
+
+The watchdog only needs `DATABASE_URL` — it never touches Redis or Mongo.
 
 ## Runbook — Redis after-PG write failures
 

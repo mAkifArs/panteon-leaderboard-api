@@ -127,11 +127,7 @@ async function cleanupWeek(isoWeek: string, profileIds: string[] = []): Promise<
 describe('runWeeklyDistribution — Mongo audit + snapshot writes', () => {
   it('writes prize_distributions audit doc and weekly_snapshots with resolved profiles', async () => {
     const isoWeek = uniqueWeek()
-    const ids = [
-      `u-${isoWeek}-001`,
-      `u-${isoWeek}-002`,
-      `u-${isoWeek}-003`,
-    ]
+    const ids = [`u-${isoWeek}-001`, `u-${isoWeek}-002`, `u-${isoWeek}-003`]
     try {
       await seedProfiles([
         { userId: ids[0]!, username: 'AlphaWolf', country: 'TR' },
