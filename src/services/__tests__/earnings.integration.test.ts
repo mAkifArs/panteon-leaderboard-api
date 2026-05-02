@@ -239,10 +239,7 @@ describe('recordEarning — pool counter is BigInt-safe past 2^53', () => {
 
       // INCRBY received a decimal string, not a number. This is the
       // bit that prevents IEEE-754 rounding on the way to the server.
-      expect(incrbySpy).toHaveBeenCalledWith(
-        `pool:week:${TEST_WEEK}`,
-        expectedContribution,
-      )
+      expect(incrbySpy).toHaveBeenCalledWith(`pool:week:${TEST_WEEK}`, expectedContribution)
 
       // Pool counter is read back via GET, never reused from the
       // INCRBY reply. ioredis casts INCRBY's integer reply to a JS

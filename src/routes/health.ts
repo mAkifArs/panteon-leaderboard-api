@@ -12,11 +12,7 @@ import { pingRedis } from '../db/redis.ts'
  */
 export function registerHealthRoutes(app: FastifyInstance): void {
   app.get('/health', async (_req, reply) => {
-    const [postgres, redis, mongo] = await Promise.all([
-      pingPostgres(),
-      pingRedis(),
-      pingMongo(),
-    ])
+    const [postgres, redis, mongo] = await Promise.all([pingPostgres(), pingRedis(), pingMongo()])
 
     const allUp = postgres && redis && mongo
     const status = allUp ? 'ok' : 'degraded'

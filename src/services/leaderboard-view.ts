@@ -43,10 +43,7 @@ function fallbackUsername(userId: string): string {
   return `Player #${userId.slice(0, 8)}`
 }
 
-async function enrichWithProfiles(
-  mongo: Db,
-  entries: LeaderboardEntry[],
-): Promise<ViewEntry[]> {
+async function enrichWithProfiles(mongo: Db, entries: LeaderboardEntry[]): Promise<ViewEntry[]> {
   if (entries.length === 0) return []
   const ids = entries.map((e) => e.userId)
 
@@ -126,7 +123,9 @@ export async function getSampleUsers(
       i === 0 ? 1 : i === n - 1 ? total : 1 + Math.floor((i * (total - 1)) / (n - 1)),
     )
   }
-  const uniqueRanks = [...new Set(targetRanks)].filter((r) => r >= 1 && r <= total).sort((a, b) => a - b)
+  const uniqueRanks = [...new Set(targetRanks)]
+    .filter((r) => r >= 1 && r <= total)
+    .sort((a, b) => a - b)
 
   // ZREVRANGE one entry at a time — n is small (≤ ~10), so a
   // pipeline is overkill. Each call is sub-ms.

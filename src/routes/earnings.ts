@@ -8,16 +8,11 @@ const BodySchema = z.object({
   userId: z.string().min(1).max(100),
   // Amount as a string for BigInt safety. Must parse as a positive
   // BigInt; we re-validate after parse.
-  amount: z
-    .string()
-    .regex(/^[1-9]\d*$/, 'amount must be a positive integer string'),
+  amount: z.string().regex(/^[1-9]\d*$/, 'amount must be a positive integer string'),
 })
 
 const HeadersSchema = z.object({
-  'idempotency-key': z
-    .string()
-    .min(1, 'Idempotency-Key header is required')
-    .max(200),
+  'idempotency-key': z.string().min(1, 'Idempotency-Key header is required').max(200),
 })
 
 export function registerEarningsRoutes(app: FastifyInstance): void {

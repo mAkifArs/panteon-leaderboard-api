@@ -38,7 +38,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   // origin list is wildcard we drop credentials to keep wildcard
   // mode functional. Named origins keep credentials enabled in case
   // a future cookie-based flow lands.
-  const corsOrigins = env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+  const corsOrigins = env.CORS_ORIGINS.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   const isWildcard = corsOrigins.includes('*')
   await app.register(cors, {
     origin: isWildcard ? true : corsOrigins,

@@ -4,7 +4,6 @@
 export const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000'
 export const SEED_SIZE = Number(__ENV.SEED_SIZE || 100000)
 
-
 export function randomUserId() {
   const n = Math.floor(Math.random() * SEED_SIZE)
   return `seed-${String(n).padStart(7, '0')}`

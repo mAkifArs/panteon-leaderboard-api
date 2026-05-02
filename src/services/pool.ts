@@ -24,11 +24,7 @@ import type { Database } from '../db/postgres.ts'
  *
  * Returns 0n for an empty week.
  */
-export async function getCurrentPool(
-  redis: Redis,
-  db: Database,
-  isoWeek: string,
-): Promise<bigint> {
+export async function getCurrentPool(redis: Redis, db: Database, isoWeek: string): Promise<bigint> {
   try {
     const cached = await redis.get(`pool:week:${isoWeek}`)
     if (cached !== null) {

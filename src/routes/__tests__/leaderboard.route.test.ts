@@ -86,7 +86,10 @@ describe('GET /leaderboard/top', () => {
     ])
     getCurrentPoolMock.mockResolvedValueOnce(12345n)
 
-    const res = await app.inject({ method: 'GET', url: '/leaderboard/top?limit=1&isoWeek=2026-W18' })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/leaderboard/top?limit=1&isoWeek=2026-W18',
+    })
     expect(res.statusCode).toBe(200)
     const body = bodyOf<TopBody>(res)
     expect(body.meta.pool).toBe('12345')

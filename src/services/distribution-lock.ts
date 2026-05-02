@@ -72,10 +72,7 @@ else
 end
 `
 
-export async function releaseDistributionLock(
-  redis: Redis,
-  lock: AcquiredLock,
-): Promise<boolean> {
+export async function releaseDistributionLock(redis: Redis, lock: AcquiredLock): Promise<boolean> {
   const result = (await redis.eval(RELEASE_SCRIPT, 1, lock.key, lock.runId)) as number
   return result === 1
 }

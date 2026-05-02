@@ -84,10 +84,7 @@ export async function ensureMongoIndexes(db: Db = getMongo().db): Promise<void> 
     // player_profiles._id is the PK (unique by default). Add a
     // case-insensitive lookup index on username for future
     // username-search features (cheap; prepare for the read).
-    playerProfiles(db).createIndex(
-      { username: 1 },
-      { collation: { locale: 'en', strength: 2 } },
-    ),
+    playerProfiles(db).createIndex({ username: 1 }, { collation: { locale: 'en', strength: 2 } }),
     // weekly_snapshots._id == isoWeek; the field index on isoWeek
     // is redundant but explicit, used by the read API.
     weeklySnapshots(db).createIndex({ isoWeek: 1 }, { unique: true }),

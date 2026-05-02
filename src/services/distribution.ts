@@ -11,10 +11,7 @@ import {
   type WeeklySnapshotEntry,
 } from '../db/mongo-collections.ts'
 import { distributePool, type Payout } from '../lib/prize-math.ts'
-import {
-  acquireDistributionLock,
-  releaseDistributionLock,
-} from './distribution-lock.ts'
+import { acquireDistributionLock, releaseDistributionLock } from './distribution-lock.ts'
 
 /**
  * Weekly prize-distribution orchestrator.
@@ -297,10 +294,7 @@ export async function runWeeklyDistribution(
           { upsert: true },
         )
       } catch (err) {
-        logger.error(
-          { err, isoWeek, runId },
-          'mongo write failed (PG already committed)',
-        )
+        logger.error({ err, isoWeek, runId }, 'mongo write failed (PG already committed)')
       }
     }
 

@@ -44,7 +44,11 @@ async function main(): Promise<void> {
     count++
   }
 
-  console.log(count === 0 ? '[migrate] no pending migrations' : `[migrate] applied ${String(count)} migration(s)`)
+  console.log(
+    count === 0
+      ? '[migrate] no pending migrations'
+      : `[migrate] applied ${String(count)} migration(s)`,
+  )
 
   await closePostgres()
 }

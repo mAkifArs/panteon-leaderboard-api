@@ -67,18 +67,76 @@ function parseSize(raw: string): number {
 // ---------------------------------------------------------------------------
 
 const ADJECTIVES = [
-  'Shadow', 'Iron', 'Crystal', 'Storm', 'Frost', 'Blaze', 'Night',
-  'Dawn', 'Echo', 'Vortex', 'Silver', 'Crimson', 'Obsidian', 'Solar',
-  'Lunar', 'Ember', 'Glacial', 'Mystic', 'Savage', 'Royal', 'Cosmic',
-  'Phantom', 'Radiant', 'Wild', 'Ancient',
+  'Shadow',
+  'Iron',
+  'Crystal',
+  'Storm',
+  'Frost',
+  'Blaze',
+  'Night',
+  'Dawn',
+  'Echo',
+  'Vortex',
+  'Silver',
+  'Crimson',
+  'Obsidian',
+  'Solar',
+  'Lunar',
+  'Ember',
+  'Glacial',
+  'Mystic',
+  'Savage',
+  'Royal',
+  'Cosmic',
+  'Phantom',
+  'Radiant',
+  'Wild',
+  'Ancient',
 ]
 const NOUNS = [
-  'Hunter', 'Warrior', 'Mage', 'Wolf', 'Drake', 'Phoenix', 'Knight',
-  'Striker', 'Shade', 'Forge', 'Reaper', 'Ranger', 'Titan', 'Sentinel',
-  'Blade', 'Fox', 'Raven', 'Serpent', 'Falcon', 'Berserker', 'Oracle',
-  'Wraith', 'Nomad', 'Pilgrim', 'Champion',
+  'Hunter',
+  'Warrior',
+  'Mage',
+  'Wolf',
+  'Drake',
+  'Phoenix',
+  'Knight',
+  'Striker',
+  'Shade',
+  'Forge',
+  'Reaper',
+  'Ranger',
+  'Titan',
+  'Sentinel',
+  'Blade',
+  'Fox',
+  'Raven',
+  'Serpent',
+  'Falcon',
+  'Berserker',
+  'Oracle',
+  'Wraith',
+  'Nomad',
+  'Pilgrim',
+  'Champion',
 ]
-const COUNTRIES = ['TR', 'US', 'DE', 'BR', 'JP', 'KR', 'IN', 'GB', 'FR', 'IT', 'ES', 'RU', 'PL', 'NL', 'SE']
+const COUNTRIES = [
+  'TR',
+  'US',
+  'DE',
+  'BR',
+  'JP',
+  'KR',
+  'IN',
+  'GB',
+  'FR',
+  'IT',
+  'ES',
+  'RU',
+  'PL',
+  'NL',
+  'SE',
+]
 
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!
@@ -113,7 +171,7 @@ function planPlayer(i: number, weekStart: Date, weekEnd: Date): PlayerSpec {
     eventCount = 20 + Math.floor(Math.random() * 30) // 20..49
     amountMin = 5_000
     amountMax = 200_000
-  } else if (tier < 0.30) {
+  } else if (tier < 0.3) {
     eventCount = 10 + Math.floor(Math.random() * 15) // 10..24
     amountMin = 500
     amountMax = 10_000
@@ -160,10 +218,7 @@ async function wipeWeek(isoWeek: string): Promise<void> {
   await db.execute(sql`DELETE FROM earning_events WHERE iso_week = ${isoWeek}`)
   await db.execute(sql`DELETE FROM weekly_pools   WHERE iso_week = ${isoWeek}`)
 
-  await Promise.all([
-    redis.del(`lb:week:${isoWeek}`),
-    redis.del(`pool:week:${isoWeek}`),
-  ])
+  await Promise.all([redis.del(`lb:week:${isoWeek}`), redis.del(`pool:week:${isoWeek}`)])
 
   await playerProfiles(mongo).deleteMany({ _id: { $regex: '^seed-' } })
 }
@@ -177,7 +232,9 @@ async function main(): Promise<void> {
   const isoWeek = toIsoWeek(now)
   const { start: weekStart, end: weekEnd } = weekBounds(now)
 
-  console.log(`[seed] week        = ${isoWeek} (${weekStart.toISOString().slice(0, 10)} → ${weekEnd.toISOString().slice(0, 10)})`)
+  console.log(
+    `[seed] week        = ${isoWeek} (${weekStart.toISOString().slice(0, 10)} → ${weekEnd.toISOString().slice(0, 10)})`,
+  )
   console.log(`[seed] users       = ${SIZE.toLocaleString()}`)
 
   const t0 = Date.now()
@@ -192,9 +249,13 @@ async function main(): Promise<void> {
   await wipeWeek(isoWeek)
 
   console.log(`[seed] planning players + events...`)
-  const players: PlayerSpec[] = Array.from({ length: SIZE }, (_, i) => planPlayer(i, weekStart, weekEnd))
+  const players: PlayerSpec[] = Array.from({ length: SIZE }, (_, i) =>
+    planPlayer(i, weekStart, weekEnd),
+  )
   const totalEvents = players.reduce((s, p) => s + p.events.length, 0)
-  console.log(`[seed] planned ${totalEvents.toLocaleString()} earning events across ${SIZE.toLocaleString()} users`)
+  console.log(
+    `[seed] planned ${totalEvents.toLocaleString()} earning events across ${SIZE.toLocaleString()} users`,
+  )
 
   // ---- Mongo: player_profiles ----
   console.log(`[seed] writing ${SIZE.toLocaleString()} player_profiles to mongo...`)
@@ -286,7 +347,9 @@ async function main(): Promise<void> {
   console.log('top 5:')
   for (const [uid, total] of top5) {
     const player = players.find((p) => p.userId === uid)!
-    console.log(`  ${player.username.padEnd(28)} (${player.country})  ${total.toLocaleString().padStart(14)}`)
+    console.log(
+      `  ${player.username.padEnd(28)} (${player.country})  ${total.toLocaleString().padStart(14)}`,
+    )
   }
 
   await Promise.all([closePostgres(), closeRedis(), closeMongo()])
