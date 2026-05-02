@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import IORedisMock from 'ioredis-mock'
 import type { Redis } from 'ioredis'
 import postgres from 'postgres'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as schema from '../../db/schema.ts'
 import { recordEarning } from '../earnings.ts'
 
@@ -204,6 +204,60 @@ describe('recordEarning — idempotency scope is per-user (ADR-009)', () => {
       expect(second.earning.id).toBe(first.earning.id)
       expect(second.earning.amount).toBe(500n)
     } finally {
+      await cleanupUser(userId)
+    }
+  })
+})
+
+describe('recordEarning — pool counter is BigInt-safe past 2^53', () => {
+  // We can't assert real-Redis 64-bit-integer behaviour here because
+  // ioredis-mock implements INCRBY in JS Number arithmetic and would
+  // reproduce the very precision bug we removed. Instead we verify
+  // the *contract our code keeps* with Redis: INCRBY is invoked with
+  // a decimal-string increment (so the server-side path stays in
+  // 64-bit integers), and the post-write read uses GET (which returns
+  // the bulk-string representation) parsed via BigInt — never the
+  // INCRBY return value, which ioredis casts to a JS Number.
+  it('sends INCRBY as a string and re-reads pool via GET', async () => {
+    const userId = uniqueUserId()
+    const incrbySpy = vi.spyOn(redis, 'incrby')
+    const getSpy = vi.spyOn(redis, 'get')
+    try {
+      // 10^17 + 1 — chosen so the value cannot round-trip through
+      // JS Number without losing precision. We don't assert on the
+      // returned amount (mock arithmetic distorts it); we assert
+      // on what hits the wire.
+      const amount = 5_000_000_000_000_000_050n
+      const expectedContribution = '100000000000000001'
+
+      await recordEarning(db, redis, {
+        userId,
+        amount,
+        idempotencyKey: `big-${userId}`,
+        now: new Date('2026-07-22T12:00:00Z'),
+      })
+
+      // INCRBY received a decimal string, not a number. This is the
+      // bit that prevents IEEE-754 rounding on the way to the server.
+      expect(incrbySpy).toHaveBeenCalledWith(
+        `pool:week:${TEST_WEEK}`,
+        expectedContribution,
+      )
+
+      // Pool counter is read back via GET, never reused from the
+      // INCRBY reply. ioredis casts INCRBY's integer reply to a JS
+      // Number; GET returns the bulk-string verbatim, so BigInt(...)
+      // preserves the full 64-bit value.
+      expect(getSpy).toHaveBeenCalledWith(`pool:week:${TEST_WEEK}`)
+
+      // PG-side agrees on the underlying earning amount (BIGINT, 2^63 cap).
+      const pgRow = await pool<{ amount: string }[]>`
+        SELECT amount::text FROM earning_events WHERE user_id = ${userId}
+      `
+      expect(pgRow[0]!.amount).toBe(amount.toString())
+    } finally {
+      incrbySpy.mockRestore()
+      getSpy.mockRestore()
       await cleanupUser(userId)
     }
   })

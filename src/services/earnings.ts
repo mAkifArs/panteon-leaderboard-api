@@ -24,6 +24,16 @@ export type EarningsLogger = Pick<pino.BaseLogger, 'error' | 'warn' | 'info'>
  *      failure is logged but does not fail the request because
  *      PG already committed and `/rebuild-redis` can recover.
  *
+ * **BigInt safety on the pool counter.** The leaderboard sorted-set
+ * score is forced to be an IEEE-754 double by the Redis spec — drift
+ * past 2^53 is documented and tolerated there because the cron
+ * always re-materialises the ranking from PG. The pool counter has
+ * no such constraint: it is a normal Redis STRING and INCRBY runs
+ * native 64-bit integer arithmetic. We pass the BigInt contribution
+ * as a decimal string so JS Number is never in the path; precision
+ * matches PG up to 2^63. CLAUDE.md invariant 1 (money is BigInt) is
+ * preserved end-to-end on this counter.
+ *
  * The user_id stored in earning_events is the upstream external
  * player id directly (TEXT). There is no PG users table — see
  * ADR-007. Profile data lives in MongoDB.
@@ -129,16 +139,29 @@ export async function recordEarning(
   if (!isReplay) {
     try {
       const contributionToPool = (input.amount * 2n) / 100n
-      const [, poolReply] = await Promise.all([
+      // String argument on INCRBY keeps JS Number out of the
+      // server-side path; Redis does the increment in native
+      // 64-bit integer arithmetic. We deliberately discard the
+      // INCRBY reply because ioredis parses it back to a JS Number
+      // on the client side, which loses precision past 2^53. Re-
+      // reading the counter via GET (Redis returns the bulk-string
+      // representation) and parsing with BigInt preserves the full
+      // 64-bit value. See module header for the BigInt-safety note.
+      await Promise.all([
         addEarning(redis, isoWeek, earning.user_id, BigInt(earning.amount)),
-        redis.incrby(poolKey(isoWeek), Number(contributionToPool)),
+        redis.incrby(poolKey(isoWeek), contributionToPool.toString()),
       ])
-      poolAmount = BigInt(poolReply)
       // After ZINCRBY, fetch the user's current rank so the
       // frontend can show instant rank-change feedback after
       // POST /earnings (no need to immediately re-poll
-      // /leaderboard/me).
-      newRank = await getRank(redis, isoWeek, earning.user_id)
+      // /leaderboard/me). Pool counter is read here as a string
+      // for the precision reason above.
+      const [poolStr, rank] = await Promise.all([
+        redis.get(poolKey(isoWeek)),
+        getRank(redis, isoWeek, earning.user_id),
+      ])
+      poolAmount = poolStr === null ? 0n : BigInt(poolStr)
+      newRank = rank
     } catch (err) {
       // Log but do not propagate — PG is the source of truth and
       // rebuild-redis can re-derive Redis state from PG.
