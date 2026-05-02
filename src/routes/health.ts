@@ -11,7 +11,14 @@ import { pingRedis } from '../db/redis.ts'
  * liveness probe by Fly.io and as a smoke test in CI.
  */
 export function registerHealthRoutes(app: FastifyInstance): void {
-  app.get('/health', async (_req, reply) => {
+  // /health and / are explicitly exempt from rate limiting.
+  // Without this opt-out, a load-balancer liveness probe (Fly.io
+  // pings every 5–15 seconds per instance) would either eat into a
+  // shared quota or trip its own limit and mark the instance as
+  // down. `global: false` already exempts un-configured routes;
+  // the explicit `rateLimit: false` here records the intent so a
+  // future contributor doesn't "tighten" health by adding a default.
+  app.get('/health', { config: { rateLimit: false } }, async (_req, reply) => {
     const [postgres, redis, mongo] = await Promise.all([pingPostgres(), pingRedis(), pingMongo()])
 
     const allUp = postgres && redis && mongo
@@ -23,7 +30,7 @@ export function registerHealthRoutes(app: FastifyInstance): void {
     })
   })
 
-  app.get('/', async (_req, reply) => {
+  app.get('/', { config: { rateLimit: false } }, async (_req, reply) => {
     return reply.send({ name: 'panteon-leaderboard-api', status: 'ok' })
   })
 }

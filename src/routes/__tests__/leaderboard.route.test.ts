@@ -128,9 +128,7 @@ describe('GET /leaderboard/me/:userId', () => {
 
 describe('GET /leaderboard/current/:userId', () => {
   it('200 with top + me + meta in a single envelope', async () => {
-    getTopViewMock.mockResolvedValueOnce([
-      { rank: 1, userId: 'u1', score: 1000n, username: 'One' },
-    ])
+    getTopViewMock.mockResolvedValueOnce([{ rank: 1, userId: 'u1', score: 1000n, username: 'One' }])
     getOwnRankViewMock.mockResolvedValueOnce({
       rank: 5,
       totalPlayers: 50,

@@ -76,6 +76,25 @@ Every non-trivial choice is recorded in `docs/adr/`. Read these first:
 - [ADR-006 — Prize distribution formula](docs/adr/ADR-006-prize-distribution-formula.md)
 - [ADR-007 — User profiles in MongoDB](docs/adr/ADR-007-users-live-in-mongodb.md)
 - [ADR-008 — Polling over WebSocket](docs/adr/ADR-008-polling-over-websocket.md)
+- [ADR-009 — Idempotency-Key scope per user](docs/adr/ADR-009-idempotency-key-scope-per-user.md)
+- [ADR-010 — Per-endpoint rate limits](docs/adr/ADR-010-per-endpoint-rate-limits.md)
+
+## Rate limits
+
+Per-IP, Redis-backed (shared across replicas). Applied per route
+so write, poll, and demo endpoints get separately-justified
+numbers. `429 Too Many Requests` includes a standard `Retry-After`
+header. Full rationale in
+[ADR-010](docs/adr/ADR-010-per-endpoint-rate-limits.md).
+
+| Endpoint                            | Limit     |
+|-------------------------------------|-----------|
+| `POST /earnings`                    | 60/min    |
+| `GET /leaderboard/top`              | 600/min   |
+| `GET /leaderboard/me/:userId`       | 600/min   |
+| `GET /leaderboard/current/:userId`  | 600/min   |
+| `GET /users/sample`                 | 120/min   |
+| `GET /health`, `GET /`              | exempt    |
 
 ## Non-negotiable invariants
 

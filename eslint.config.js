@@ -40,11 +40,7 @@ export default tseslint.config(
     // Escape hatch: `// eslint-disable-next-line no-restricted-syntax
     // -- <reason>` with a justification, when a future legitimate
     // pattern lands.
-    files: [
-      'src/services/leaderboard.ts',
-      'src/services/leaderboard-view.ts',
-      'scripts/seed.ts',
-    ],
+    files: ['src/services/leaderboard.ts', 'src/services/leaderboard-view.ts', 'scripts/seed.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -62,8 +58,7 @@ export default tseslint.config(
           // Number(<id>) — the BigInt-to-Number cast that lost
           // precision in commit 6f262ac. Number(arr[i]) and
           // Number(literal) stay legal (CLI parsing in seed.ts).
-          selector:
-            "CallExpression[callee.name='Number'] > Identifier:not([name='Number'])",
+          selector: "CallExpression[callee.name='Number'] > Identifier:not([name='Number'])",
           message:
             'Use bigIntToRedisScore() from src/services/redis-bigint.ts when sending a BigInt to Redis. Inline Number(<bigint>) silently rounds past 2^53 (commit 6f262ac).',
         },

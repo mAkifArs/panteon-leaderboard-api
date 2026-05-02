@@ -50,3 +50,6 @@ tmp/
 
 # Benchmark output (logs + JSON summaries — reproducible, not committed)
 .bench/
+
+# Ephemeral delivery checklist — local only, not part of the repo
+DELIVERY_TODO.md

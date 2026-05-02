@@ -1,13 +1,14 @@
 import './plugins/bigint-serializer.ts'
 
 import cors from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import sensible from '@fastify/sensible'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { loadEnv } from './config/env.ts'
 import { closeMongo } from './db/mongo.ts'
 import { ensureMongoIndexes } from './db/mongo-collections.ts'
 import { closePostgres } from './db/postgres.ts'
-import { closeRedis } from './db/redis.ts'
+import { closeRedis, getRedis } from './db/redis.ts'
 import { registerErrorHandler } from './plugins/error-handler.ts'
 import { registerEarningsRoutes } from './routes/earnings.ts'
 import { registerHealthRoutes } from './routes/health.ts'
@@ -48,6 +49,38 @@ export async function buildServer(): Promise<FastifyInstance> {
   })
 
   await app.register(sensible)
+
+  // Rate limit (ADR-010). `global: false` → opt-in per route; each
+  // route handler attaches its own `config.rateLimit` so write,
+  // poll, demo, and health endpoints get separately-justified
+  // numbers. Redis-backed in production so the limit is shared
+  // across replicas (ADR-008 stateless invariant); in test we drop
+  // back to the in-memory store to avoid coupling unit tests to a
+  // live Redis. `skipOnError: true` means a Redis outage fails
+  // open — availability over strict throttling, since money safety
+  // is enforced by the PG idempotency-key UNIQUE constraint
+  // (ADR-009), not by the rate limiter.
+  await app.register(rateLimit, {
+    global: false,
+    redis: env.NODE_ENV === 'test' ? undefined : getRedis(),
+    nameSpace: 'rl:',
+    skipOnError: true,
+    addHeaders: {
+      'x-ratelimit-limit': true,
+      'x-ratelimit-remaining': true,
+      'x-ratelimit-reset': true,
+      'retry-after': true,
+    },
+    // The plugin throws a plain `Error` (no `statusCode`) on
+    // exceedance and lets onError handlers decide the response.
+    // Our `error-handler.ts` recognises the rate-limit message and
+    // re-codes it to `rate_limited` with the standard envelope —
+    // we deliberately avoid `errorResponseBuilder` here because
+    // the plugin would `throw` whatever it returns, and a plain
+    // object hits `error-handler` without a `statusCode` and ends
+    // up as 500. Easier to centralise the mapping in one place.
+  })
+
   registerErrorHandler(app)
   registerHealthRoutes(app)
   registerEarningsRoutes(app)

@@ -16,9 +16,18 @@ export function registerErrorHandler(app: FastifyInstance): void {
       req.log.error({ err, url: req.url, method: req.method }, 'unhandled error')
     }
 
+    // Map well-known status codes to semantic codes when the
+    // upstream error didn't supply one. Today the only entry is
+    // 429 from `@fastify/rate-limit`, which throws a plain Error
+    // with a `statusCode` but no machine-readable `code`. Centralising
+    // the mapping here means clients can branch on
+    // `error.code === 'rate_limited'` instead of magic-numbering 429.
+    const fallbackCode =
+      status === 429 ? 'rate_limited' : status >= 500 ? 'internal_error' : 'bad_request'
+
     void reply.status(status).send({
       error: {
-        code: err.code ?? (status >= 500 ? 'internal_error' : 'bad_request'),
+        code: err.code ?? fallbackCode,
         message: status >= 500 ? 'Internal server error' : err.message,
         ...(err.validation ? { details: err.validation } : {}),
       },

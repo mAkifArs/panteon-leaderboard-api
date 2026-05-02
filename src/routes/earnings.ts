@@ -19,30 +19,38 @@ const HeadersSchema = z.object({
 })
 
 export function registerEarningsRoutes(app: FastifyInstance): void {
-  app.post('/earnings', async (req, reply) => {
-    const headers = HeadersSchema.safeParse(req.headers)
-    if (!headers.success) {
-      return reply.status(400).send({
-        error: { code: 'invalid_headers', message: headers.error.issues[0]!.message },
+  // Rate limit: 60/min per IP. ADR-010 — write endpoint, an idle
+  // game tick is at most ~one POST per second per real player.
+  // Idempotency-key dedup (ADR-009) is per-user; this limit is the
+  // per-IP flood guard that dedup cannot give.
+  app.post(
+    '/earnings',
+    { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const headers = HeadersSchema.safeParse(req.headers)
+      if (!headers.success) {
+        return reply.status(400).send({
+          error: { code: 'invalid_headers', message: headers.error.issues[0]!.message },
+        })
+      }
+      const body = BodySchema.safeParse(req.body)
+      if (!body.success) {
+        return reply.status(400).send({
+          error: { code: 'invalid_body', message: body.error.issues[0]!.message },
+        })
+      }
+
+      const { db } = getPostgres()
+      const redis = getRedis()
+
+      const result = await recordEarning(db, redis, {
+        userId: body.data.userId,
+        amount: BigInt(body.data.amount),
+        idempotencyKey: headers.data['idempotency-key'],
+        logger: req.log,
       })
-    }
-    const body = BodySchema.safeParse(req.body)
-    if (!body.success) {
-      return reply.status(400).send({
-        error: { code: 'invalid_body', message: body.error.issues[0]!.message },
-      })
-    }
 
-    const { db } = getPostgres()
-    const redis = getRedis()
-
-    const result = await recordEarning(db, redis, {
-      userId: body.data.userId,
-      amount: BigInt(body.data.amount),
-      idempotencyKey: headers.data['idempotency-key'],
-      logger: req.log,
-    })
-
-    return reply.status(result.earning.isReplay ? 200 : 201).send(result)
-  })
+      return reply.status(result.earning.isReplay ? 200 : 201).send(result)
+    },
+  )
 }

@@ -25,17 +25,25 @@ const SampleQuerySchema = z.object({
  * players, all of them are returned in rank order.
  */
 export function registerUsersRoutes(app: FastifyInstance): void {
-  app.get('/users/sample', async (req, reply) => {
-    const query = SampleQuerySchema.safeParse(req.query)
-    if (!query.success) {
-      return reply.status(400).send({
-        error: { code: 'invalid_query', message: query.error.issues[0]!.message },
-      })
-    }
-    const isoWeek = query.data.isoWeek ?? toIsoWeek(new Date())
-    const { db: mongo } = getMongo()
-    const redis = getRedis()
-    const users = await getSampleUsers(redis, mongo, isoWeek, query.data.n)
-    return reply.send({ isoWeek, count: users.length, users })
-  })
+  // Rate limit: 120/min per IP. ADR-010 — demo picker, called
+  // sparingly (frontend mount-time, manual refresh); still tighter
+  // than poll endpoints because there's no legitimate reason for
+  // multi-tab polling here.
+  app.get(
+    '/users/sample',
+    { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const query = SampleQuerySchema.safeParse(req.query)
+      if (!query.success) {
+        return reply.status(400).send({
+          error: { code: 'invalid_query', message: query.error.issues[0]!.message },
+        })
+      }
+      const isoWeek = query.data.isoWeek ?? toIsoWeek(new Date())
+      const { db: mongo } = getMongo()
+      const redis = getRedis()
+      const users = await getSampleUsers(redis, mongo, isoWeek, query.data.n)
+      return reply.send({ isoWeek, count: users.length, users })
+    },
+  )
 }
