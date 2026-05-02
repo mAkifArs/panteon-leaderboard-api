@@ -11,7 +11,7 @@ import {
 let redis: Redis
 
 beforeEach(async () => {
-  redis = new IORedisMock() as unknown as Redis
+  redis = new IORedisMock()
   // ioredis-mock shares one in-memory store across all instances
   // by default — wipe it between tests to keep them isolated.
   await redis.flushall()
@@ -93,9 +93,9 @@ describe('releaseDistributionLock', () => {
 describe('withDistributionLock', () => {
   it('runs the callback and releases on success', async () => {
     let ran = false
-    const result = await withDistributionLock(redis, ISO_WEEK, 'run-1', 10_000, async () => {
+    const result = await withDistributionLock(redis, ISO_WEEK, 'run-1', 10_000, () => {
       ran = true
-      return 42
+      return Promise.resolve(42)
     })
     expect(ran).toBe(true)
     expect(result).toBe(42)
@@ -107,9 +107,9 @@ describe('withDistributionLock', () => {
   it('skips the callback when the lock is held by someone else', async () => {
     await acquireDistributionLock(redis, ISO_WEEK, 'run-A', 10_000)
     let ran = false
-    const result = await withDistributionLock(redis, ISO_WEEK, 'run-B', 10_000, async () => {
+    const result = await withDistributionLock(redis, ISO_WEEK, 'run-B', 10_000, () => {
       ran = true
-      return 'should-not-run'
+      return Promise.resolve('should-not-run')
     })
     expect(ran).toBe(false)
     expect(result).toBeNull()
@@ -117,7 +117,7 @@ describe('withDistributionLock', () => {
 
   it('still releases the lock if the callback throws', async () => {
     await expect(
-      withDistributionLock(redis, ISO_WEEK, 'run-1', 10_000, async () => {
+      withDistributionLock(redis, ISO_WEEK, 'run-1', 10_000, () => {
         throw new Error('boom')
       }),
     ).rejects.toThrow('boom')

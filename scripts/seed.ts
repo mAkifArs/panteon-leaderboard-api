@@ -213,13 +213,13 @@ async function main(): Promise<void> {
   console.log(`[seed] writing earning_events to postgres in batches...`)
   const BATCH = 1000
   let written = 0
-  let batch: Array<{
+  let batch: {
     user_id: string
     amount: string
     iso_week: string
     earned_at: string
     idempotency_key: string
-  }> = []
+  }[] = []
   for (const p of players) {
     p.events.forEach((e, idx) => {
       batch.push({

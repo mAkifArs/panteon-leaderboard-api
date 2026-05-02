@@ -1,5 +1,4 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { sql } from 'drizzle-orm'
 import IORedisMock from 'ioredis-mock'
 import type { Redis } from 'ioredis'
 import postgres from 'postgres'
@@ -42,7 +41,7 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
-  redis = new IORedisMock() as unknown as Redis
+  redis = new IORedisMock()
   await redis.flushall()
 })
 
@@ -61,7 +60,7 @@ function uniqueWeek(): string {
 
 async function seedPlayers(
   isoWeek: string,
-  players: Array<{ userId: string; amount: bigint; earnedAt?: Date }>,
+  players: { userId: string; amount: bigint; earnedAt?: Date }[],
 ): Promise<void> {
   for (const p of players) {
     await pool`

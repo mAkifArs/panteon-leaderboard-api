@@ -23,7 +23,7 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
-  redis = new IORedisMock() as unknown as Redis
+  redis = new IORedisMock()
   await redis.flushall()
 })
 

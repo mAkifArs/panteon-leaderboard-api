@@ -30,9 +30,13 @@ export async function pingRedis(): Promise<boolean> {
   }
 }
 
-export async function closeRedis(): Promise<void> {
+export function closeRedis(): Promise<void> {
+  // ioredis disconnect() is synchronous; we keep the Promise<void>
+  // signature so the close path in server.ts can `await` all three
+  // shutdowns uniformly (Promise.all over PG/Redis/Mongo).
   if (client) {
     client.disconnect()
     client = undefined
   }
+  return Promise.resolve()
 }

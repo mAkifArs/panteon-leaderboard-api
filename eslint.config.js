@@ -25,6 +25,20 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['node_modules/**', 'dist/**', 'coverage/**', 'drizzle/**'],
+    // Worktrees are ephemeral Claude scratch dirs; benchmarks are k6
+    // scripts (not Node, no tsconfig); test/setup.ts and the eslint
+    // config itself sit outside the typed-lint project so the
+    // type-checked rules cannot resolve them. Skip all of these
+    // rather than expanding tsconfig include and slowing typecheck.
+    ignores: [
+      'node_modules/**',
+      'dist/**',
+      'coverage/**',
+      'drizzle/**',
+      '.claude/**',
+      'benchmarks/**',
+      'test/setup.ts',
+      'eslint.config.js',
+    ],
   },
 )

@@ -6,16 +6,16 @@ import '../plugins/bigint-serializer.ts'
 // serialises) without spinning up real PG/Redis/Mongo. Real-DB
 // integration tests come in the testcontainers layer.
 vi.mock('../db/postgres.ts', () => ({
-  pingPostgres: vi.fn(async () => true),
-  closePostgres: vi.fn(async () => undefined),
+  pingPostgres: vi.fn(() => Promise.resolve(true)),
+  closePostgres: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('../db/redis.ts', () => ({
-  pingRedis: vi.fn(async () => true),
-  closeRedis: vi.fn(async () => undefined),
+  pingRedis: vi.fn(() => Promise.resolve(true)),
+  closeRedis: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('../db/mongo.ts', () => ({
-  pingMongo: vi.fn(async () => true),
-  closeMongo: vi.fn(async () => undefined),
+  pingMongo: vi.fn(() => Promise.resolve(true)),
+  closeMongo: vi.fn(() => Promise.resolve()),
 }))
 
 const ORIGINAL_ENV = { ...process.env }
@@ -78,7 +78,7 @@ describe('server', () => {
 
   it('serialises BigInt as a decimal string in JSON responses', async () => {
     const app = await buildServer()
-    app.get('/echo-bigint', async () => ({ amount: 123456789012345678901234567890n }))
+    app.get('/echo-bigint', () => ({ amount: 123456789012345678901234567890n }))
 
     const res = await app.inject({ method: 'GET', url: '/echo-bigint' })
     expect(res.statusCode).toBe(200)

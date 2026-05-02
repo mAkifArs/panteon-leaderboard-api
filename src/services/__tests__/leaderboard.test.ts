@@ -23,7 +23,7 @@ beforeEach(async () => {
   // by default — flushall keeps tests isolated.
   // Real-Redis integration tests via testcontainers come in a
   // follow-up commit (see testing-patterns skill).
-  redis = new IORedisMock() as unknown as Redis
+  redis = new IORedisMock()
   await redis.flushall()
 })
 
