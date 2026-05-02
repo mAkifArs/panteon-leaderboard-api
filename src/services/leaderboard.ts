@@ -1,4 +1,5 @@
 import type { Redis } from 'ioredis'
+import { bigIntToRedisScore, redisScoreToBigInt } from './redis-bigint.ts'
 
 /**
  * Live leaderboard service — wraps a Redis sorted set per ISO week.
@@ -57,7 +58,12 @@ export async function addEarning(
   userId: string,
   amount: bigint,
 ): Promise<void> {
-  await redis.zincrby(leaderboardKey(isoWeek), Number(amount), userId)
+  // bigIntToRedisScore keeps the JS Number cast out of the path —
+  // see src/services/redis-bigint.ts module header for why this
+  // matters past 2^53. Redis still stores the score as a double
+  // (sortedset spec); the helper just removes the JS-side
+  // precision cliff before serialisation.
+  await redis.zincrby(leaderboardKey(isoWeek), bigIntToRedisScore(amount), userId)
 }
 
 /**
@@ -173,19 +179,4 @@ function decodeRangeWithScores(raw: string[], startingRank: number): Leaderboard
     })
   }
   return entries
-}
-
-/**
- * Convert a Redis sorted-set score (always serialised as a decimal
- * or scientific-notation double, e.g. "1000", "5e+18", "12345.5")
- * to a BigInt. We round to the nearest integer because the Redis
- * score is already an IEEE-754 double — sub-coin drift past 2^53
- * is documented and tolerated in this layer (see module header).
- *
- * `BigInt(scoreStr)` would crash on scientific notation; this
- * parses via Number first, which Redis's textual representation
- * always round-trips into.
- */
-function redisScoreToBigInt(scoreStr: string): bigint {
-  return BigInt(Math.round(Number(scoreStr)))
 }

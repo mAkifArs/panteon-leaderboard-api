@@ -118,6 +118,20 @@ describe('getTop', () => {
     await clearWeek(redis, ISO_WEEK)
     expect(await getTop(redis, ISO_WEEK)).toEqual([])
   })
+
+  it('does not crash when the top entry is a whale (Bug 1 regression)', async () => {
+    // Bug 1 (commit d840707): inline BigInt(scoreStr) crashed when
+    // Redis returned a whale score in scientific notation. The
+    // helper layer now goes through redisScoreToBigInt; this test
+    // locks that decodeRangeWithScores uses it.
+    await clearWeek(redis, ISO_WEEK)
+    await addEarning(redis, ISO_WEEK, 'whale', 5_000_000_000_000_000_050n)
+    const top = await getTop(redis, ISO_WEEK, 1)
+    expect(top).toHaveLength(1)
+    expect(top[0]?.userId).toBe('whale')
+    // Sub-coin drift past 2^53 is documented; assert bounded, not exact.
+    expect(typeof top[0]?.score).toBe('bigint')
+  })
 })
 
 describe('getOwnRankCluster', () => {

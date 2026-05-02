@@ -27,6 +27,7 @@ import { ensureMongoIndexes, playerProfiles } from '../src/db/mongo-collections.
 import { closePostgres, getPostgres } from '../src/db/postgres.ts'
 import { closeRedis, getRedis } from '../src/db/redis.ts'
 import { toIsoWeek } from '../src/lib/iso-week.ts'
+import { bigIntToRedisScore } from '../src/services/redis-bigint.ts'
 
 // ---------------------------------------------------------------------------
 // Safety guard
@@ -325,9 +326,12 @@ async function main(): Promise<void> {
   const entries = [...totalsByUser.entries()]
   for (let i = 0; i < entries.length; i += 1000) {
     const slice = entries.slice(i, i + 1000)
-    const args: (string | number)[] = []
+    const args: string[] = []
     for (const [uid, total] of slice) {
-      args.push(Number(total), uid)
+      // bigIntToRedisScore: keeps the JS Number cast out of the
+      // path. Redis still stores the score as a double — the helper
+      // exists so the JS side never silently rounds past 2^53.
+      args.push(bigIntToRedisScore(total), uid)
     }
     await redis.zadd(lbKey, ...args)
   }

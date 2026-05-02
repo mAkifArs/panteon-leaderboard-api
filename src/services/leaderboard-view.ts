@@ -9,6 +9,7 @@ import {
   leaderboardKey,
   type LeaderboardEntry,
 } from './leaderboard.ts'
+import { redisScoreToBigInt } from './redis-bigint.ts'
 
 /**
  * Read-side composition: Redis sorted-set entries are fast (rank
@@ -138,7 +139,9 @@ export async function getSampleUsers(
   const entries: LeaderboardEntry[] = uniqueRanks.flatMap((rank, idx) => {
     const reply = results?.[idx]?.[1] as string[] | undefined
     if (!reply || reply.length < 2) return []
-    return [{ rank, userId: reply[0]!, score: BigInt(reply[1]!) }]
+    // redisScoreToBigInt: scientific-notation safe (see redis-bigint.ts).
+    // Inline BigInt(reply[1]!) crashed on whale scores — Bug 3.
+    return [{ rank, userId: reply[0]!, score: redisScoreToBigInt(reply[1]!) }]
   })
 
   return enrichWithProfiles(mongo, entries)

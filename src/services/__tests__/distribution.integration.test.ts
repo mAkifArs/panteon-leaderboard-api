@@ -243,4 +243,36 @@ describe('runWeeklyDistribution — deterministic tie-breaking', () => {
       await cleanupWeek(isoWeek)
     }
   })
+
+  it('a whale alongside normal players ranks correctly from PG (drift-immune)', async () => {
+    // Regression guard for the documented invariant: cron payout
+    // re-materialises ranking from PG, never from Redis. A whale
+    // amount that would cause sub-coin drift in the Redis sortedset
+    // view must still produce exact PG-side rank order.
+    const isoWeek = uniqueWeek()
+    try {
+      const whaleId = `u-${isoWeek}-whale`
+      const normal1 = `u-${isoWeek}-normal1`
+      const normal2 = `u-${isoWeek}-normal2`
+      await seedPlayers(isoWeek, [
+        { userId: whaleId, amount: 5_000_000_000_000_000_050n },
+        { userId: normal1, amount: 1_000n },
+        { userId: normal2, amount: 500n },
+      ])
+
+      const result = await runWeeklyDistribution({ isoWeek, db, redis })
+      expect(result.status).toBe('distributed')
+
+      const payoutRows = await pool<{ rank: number; user_id: string }[]>`
+        SELECT rank, user_id FROM prize_payouts
+        WHERE iso_week = ${isoWeek}
+        ORDER BY rank
+      `
+      expect(payoutRows[0]!.user_id).toBe(whaleId)
+      expect(payoutRows[1]!.user_id).toBe(normal1)
+      expect(payoutRows[2]!.user_id).toBe(normal2)
+    } finally {
+      await cleanupWeek(isoWeek)
+    }
+  })
 })
