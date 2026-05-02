@@ -5,6 +5,7 @@ import sensible from '@fastify/sensible'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { loadEnv } from './config/env.ts'
 import { closeMongo } from './db/mongo.ts'
+import { ensureMongoIndexes } from './db/mongo-collections.ts'
 import { closePostgres } from './db/postgres.ts'
 import { closeRedis } from './db/redis.ts'
 import { registerErrorHandler } from './plugins/error-handler.ts'
@@ -30,10 +31,18 @@ export async function buildServer(): Promise<FastifyInstance> {
   // CORS — allow the origins listed in CORS_ORIGINS. Use '*' for
   // dev wide-open. Idempotency-Key is exposed because POST
   // /earnings reads it from headers.
+  //
+  // Browsers reject the combination `Access-Control-Allow-Origin: *`
+  // with `Access-Control-Allow-Credentials: true` per the CORS spec.
+  // We don't actually carry cookies — auth is upstream — so when the
+  // origin list is wildcard we drop credentials to keep wildcard
+  // mode functional. Named origins keep credentials enabled in case
+  // a future cookie-based flow lands.
   const corsOrigins = env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+  const isWildcard = corsOrigins.includes('*')
   await app.register(cors, {
-    origin: corsOrigins.includes('*') ? true : corsOrigins,
-    credentials: true,
+    origin: isWildcard ? true : corsOrigins,
+    credentials: !isWildcard,
     allowedHeaders: ['Content-Type', 'Idempotency-Key'],
   })
 
@@ -50,6 +59,20 @@ export async function buildServer(): Promise<FastifyInstance> {
 async function main(): Promise<void> {
   const env = loadEnv()
   const app = await buildServer()
+
+  // Ensure Mongo indexes exist before serving traffic. createIndex
+  // is idempotent — same spec on subsequent boots is a no-op — so
+  // running this every cold start is the simplest way to keep prod
+  // and dev in sync without a separate "first boot" migration step.
+  // Failure here aborts boot: an index-less Mongo turns leaderboard
+  // username lookups into full collection scans, and we'd rather
+  // page on /health than ship that quietly.
+  try {
+    await ensureMongoIndexes()
+  } catch (err) {
+    app.log.error({ err }, 'ensureMongoIndexes failed; refusing to boot')
+    process.exit(1)
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, 'shutting down')
