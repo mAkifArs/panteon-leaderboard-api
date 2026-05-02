@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isoWeekRange, isoWeekToMonday, toIsoWeek } from '../iso-week.ts'
+import { isoWeekRange, isoWeekToMonday, previousIsoWeek, toIsoWeek } from '../iso-week.ts'
 
 describe('toIsoWeek', () => {
   it('formats a mid-week date as YYYY-WXX', () => {
@@ -69,5 +69,28 @@ describe('isoWeekRange', () => {
     const { start, end } = isoWeekRange('2026-W53')
     expect(start.toISOString()).toBe('2026-12-28T00:00:00.000Z')
     expect(end.toISOString()).toBe('2027-01-03T23:59:59.999Z')
+  })
+})
+
+describe('previousIsoWeek', () => {
+  it('returns the previous week for a mid-week date', () => {
+    // 2026-04-22 is a Wednesday in W17 → previous is W16.
+    expect(previousIsoWeek(new Date('2026-04-22T12:00:00Z'))).toBe('2026-W16')
+  })
+
+  it('crosses the year boundary correctly (2026-W01 → 2025-W52)', () => {
+    // 2026-W01 starts on 2025-12-29 (Mon). Any time inside W01
+    // must resolve to 2025-W52 — 2025 has 52 ISO weeks.
+    expect(previousIsoWeek(new Date('2026-01-04T00:00:00Z'))).toBe('2025-W52')
+  })
+
+  it('regression: Monday 00:05 UTC of the new week → previous week', () => {
+    // The exact failure mode the cron used to hit. 2026-04-20
+    // is Monday of W17; cron fires Mon 00:05 and asked
+    // toIsoWeek(now) which returned W17 (the empty new week).
+    // previousIsoWeek must return W16 — the week that just
+    // closed Sunday 23:59 UTC and actually has earnings to
+    // distribute.
+    expect(previousIsoWeek(new Date('2026-04-20T00:05:00Z'))).toBe('2026-W16')
   })
 })

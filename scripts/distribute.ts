@@ -14,11 +14,15 @@
 import { closeMongo, getMongo } from '../src/db/mongo.ts'
 import { closePostgres, getPostgres } from '../src/db/postgres.ts'
 import { closeRedis, getRedis } from '../src/db/redis.ts'
-import { toIsoWeek } from '../src/lib/iso-week.ts'
+import { previousIsoWeek } from '../src/lib/iso-week.ts'
 import { runWeeklyDistribution } from '../src/services/distribution.ts'
 
 async function main(): Promise<void> {
-  const isoWeek = process.argv[2] ?? toIsoWeek(new Date())
+  // Default target is the week that JUST CLOSED, not the one in
+  // progress. The cron fires Mon 00:05 UTC and is supposed to pay
+  // out for the previous Mon-Sun. argv[2] override remains
+  // available for forensic re-runs (workflow_dispatch).
+  const isoWeek = process.argv[2] ?? previousIsoWeek(new Date())
   if (!/^\d{4}-W\d{2}$/.test(isoWeek)) {
     console.error(`[distribute] invalid iso week: ${isoWeek} (expected YYYY-WXX)`)
     process.exit(2)

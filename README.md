@@ -222,8 +222,10 @@ The prize-distribution job is intentionally **not** an in-process
 `node-cron` — a horizontally-scaled API would fire it N times per
 tick. The trigger lives outside the app:
 [`.github/workflows/weekly-distribution.yml`](.github/workflows/weekly-distribution.yml)
-runs every Monday 00:05 UTC and invokes `bun run db:distribute`.
-The script is idempotent (Redis SETNX lock + PG state machine +
+runs every Monday 00:05 UTC and invokes `bun run db:distribute`,
+which targets the **previous** ISO week — the Mon–Sun that just
+closed at Sunday 23:59 UTC, not the five-minute-old week in
+progress. The script is idempotent (Redis SETNX lock + PG state machine +
 `prize_payouts` UNIQUE constraints — see
 [ADR-003](docs/adr/ADR-003-distributed-lock-with-db-guard.md)),
 so even if the workflow accidentally fires twice the second run

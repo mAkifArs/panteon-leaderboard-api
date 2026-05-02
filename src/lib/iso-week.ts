@@ -42,6 +42,19 @@ export function toIsoWeek(date: Date): string {
   return `${isoYear}-W${String(weekNumber).padStart(2, '0')}`
 }
 
+/**
+ * The ISO week immediately preceding the one containing `date`.
+ * The cron fires Mondays 00:05 UTC and needs to operate on the
+ * week that just *closed* (Sunday 23:59 UTC), not the one that
+ * is five minutes old. Subtracting seven days then re-deriving
+ * the ISO week handles year boundaries (W01 → previous-year W52
+ * or W53) for free, because `toIsoWeek` already encodes
+ * ISO 8601's "week-numbering year" rule.
+ */
+export function previousIsoWeek(date: Date): string {
+  return toIsoWeek(new Date(date.getTime() - 7 * MS_PER_DAY))
+}
+
 export interface IsoWeekRange {
   /** Monday 00:00:00.000 UTC of the given ISO week. */
   start: Date
