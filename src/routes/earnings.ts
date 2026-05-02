@@ -42,6 +42,7 @@ export function registerEarningsRoutes(app: FastifyInstance): void {
       userId: body.data.userId,
       amount: BigInt(body.data.amount),
       idempotencyKey: headers.data['idempotency-key'],
+      logger: req.log,
     })
 
     return reply.status(result.earning.isReplay ? 200 : 201).send(result)

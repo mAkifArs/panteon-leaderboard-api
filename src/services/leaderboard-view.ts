@@ -97,13 +97,20 @@ export async function getSampleUsers(
     targetRanks = Array.from({ length: total }, (_, i) => i + 1)
   } else if (n === 3) {
     targetRanks = [1, Math.floor(total / 2), Math.max(2, Math.floor(total * 0.9))]
+  } else if (n === 5) {
+    // UX-meaningful boundary picks for the demo picker: top of
+    // podium, last podium slot, last in top-100, mid pack, and
+    // the very last player. Each one drives a distinct render path
+    // in the frontend (top-3 podium, list-edge, list-end, outside-
+    // top-100 cluster, sliding-window cluster at the bottom).
+    targetRanks = [1, 3, 100, Math.max(101, Math.floor(total / 2)), total]
   } else {
     // Evenly spaced anchors, always including rank 1 and rank N.
     targetRanks = Array.from({ length: n }, (_, i) =>
       i === 0 ? 1 : i === n - 1 ? total : 1 + Math.floor((i * (total - 1)) / (n - 1)),
     )
   }
-  const uniqueRanks = [...new Set(targetRanks)].sort((a, b) => a - b)
+  const uniqueRanks = [...new Set(targetRanks)].filter((r) => r >= 1 && r <= total).sort((a, b) => a - b)
 
   // ZREVRANGE one entry at a time — n is small (≤ ~10), so a
   // pipeline is overkill. Each call is sub-ms.

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import type { Db } from 'mongodb'
+import pino from 'pino'
 import { v4 as uuidv4 } from 'uuid'
 import type { Database } from '../db/postgres.ts'
 import type { Redis } from 'ioredis'
@@ -18,8 +19,7 @@ import {
 /**
  * Weekly prize-distribution orchestrator.
  *
- * Combines four layers of safety (CLAUDE.md invariant + ADR-003,
- * forthcoming):
+ * Combines four layers of safety (CLAUDE.md invariant + ADR-003):
  *   1. Redis SETNX lock — blocks concurrent cron triggers across
  *      horizontally-scaled API instances.
  *   2. weekly_pools.status state machine — atomic CAS from 'open'
@@ -35,6 +35,10 @@ import {
  * leaves the row in 'distributing' state; manual recovery is
  * required (see runbook in /replay-week skill).
  */
+
+const defaultLogger = pino({ name: 'distribution' })
+
+export type DistributionLogger = Pick<pino.BaseLogger, 'error' | 'warn' | 'info'>
 
 export const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
@@ -63,6 +67,8 @@ export interface RunDistributionOptions {
   runId?: string
   /** Override the clock for testability. */
   now?: () => Date
+  /** Logger to use; defaults to a pino instance named 'distribution'. */
+  logger?: DistributionLogger
 }
 
 interface PlayerRow extends Record<string, unknown> {
@@ -96,6 +102,7 @@ export async function runWeeklyDistribution(
     lockTtlMs = DEFAULT_LOCK_TTL_MS,
     runId = uuidv4(),
     now = () => new Date(),
+    logger = defaultLogger,
   } = opts
 
   // 1. Acquire the Redis lock. If someone else holds it, bail.
@@ -285,9 +292,9 @@ export async function runWeeklyDistribution(
           { upsert: true },
         )
       } catch (err) {
-        console.error(
-          '[distribution] mongo write failed (PG already committed):',
-          (err as Error).message,
+        logger.error(
+          { err, isoWeek, runId },
+          'mongo write failed (PG already committed)',
         )
       }
     }
