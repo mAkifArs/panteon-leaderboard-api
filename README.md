@@ -244,6 +244,7 @@ managed services, all in the same AWS region (Frankfurt
 | Redis (TLS) | [Upstash](https://upstash.com) free regional | 256 MB, native `rediss://` for ioredis, eviction `noeviction` so leaderboard ZSET never gets dropped under pressure |
 | MongoDB | [Atlas M0](https://www.mongodb.com/atlas) free | 512 MB, IP allow list `0.0.0.0/0` because Render free tier has no static egress IP — `panteon` user is `readWrite@leaderboard` only and SCRAM-SHA-256 + TLS still gate access |
 | Cron + watchdog | [GitHub Actions](.github/workflows/) | Mon 00:05 UTC distribution + Mon 01:05 UTC watchdog — see below |
+| Frontend | [Cloudflare Pages](https://pages.cloudflare.com) — separate repo (ADR-002) | <https://panteon-leaderboard-web.pages.dev> — origin is the only entry on `CORS_ORIGINS`; wildcard mode dropped post-launch so the API responds to one known caller |
 
 **Free-tier trade-offs that landed in the deploy:**
 
