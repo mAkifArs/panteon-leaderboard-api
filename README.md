@@ -7,6 +7,14 @@ Panteon Games full-stack case study. Frontend lives in a separate repo
 Stack: **Node.js (Bun) + Fastify + PostgreSQL + Redis + MongoDB**, exactly
 as the brief requires.
 
+**Live deploy:** <https://panteon-leaderboard-api.onrender.com> — try
+[`/health`](https://panteon-leaderboard-api.onrender.com/health) or
+[`/leaderboard/top`](https://panteon-leaderboard-api.onrender.com/leaderboard/top)
+(populated with a 100k-user seeded dataset for the current ISO week).
+Free-tier instance — first request after 15 min of inactivity may take
+~30s to spin up. See [Production deployment](#production-deployment)
+for the full host layout.
+
 ## Three databases, three jobs
 
 The brief mandates all three. Each one owns a different problem:
@@ -221,6 +229,48 @@ not per request.
 10M is therefore a scale-out exercise, not a scale-up rewrite. The
 single-instance numbers above tell us the per-request cost; multiplying
 that by the replica count gives the throughput envelope.
+
+## Production deployment
+
+The live deploy at
+<https://panteon-leaderboard-api.onrender.com> runs on free-tier
+managed services, all in the same AWS region (Frankfurt
+`eu-central-1`) so cross-DB latency stays under 5ms in the hot path.
+
+| Layer | Host | Why |
+|-------|------|-----|
+| API | [Render](https://render.com) free web service | Docker autodeploy from GitHub `main`, single instance with TLS, Frankfurt region |
+| Postgres 17 | [Neon](https://neon.tech) free tier | 0.5 GB storage, sslmode=require, branching available for forensic restores |
+| Redis (TLS) | [Upstash](https://upstash.com) free regional | 256 MB, native `rediss://` for ioredis, eviction `noeviction` so leaderboard ZSET never gets dropped under pressure |
+| MongoDB | [Atlas M0](https://www.mongodb.com/atlas) free | 512 MB, IP allow list `0.0.0.0/0` because Render free tier has no static egress IP — `panteon` user is `readWrite@leaderboard` only and SCRAM-SHA-256 + TLS still gate access |
+| Cron + watchdog | [GitHub Actions](.github/workflows/) | Mon 00:05 UTC distribution + Mon 01:05 UTC watchdog — see below |
+
+**Free-tier trade-offs that landed in the deploy:**
+
+- **API spin-down after 15 min idle** — Render free instances sleep
+  on inactivity and the next cold start is ~30s. The default
+  liveness probe on `/health` plus an external pinger (e.g.
+  UptimeRobot every 5 min) keeps the instance warm during demos.
+  `/health` is exempt from rate limiting precisely so this pattern
+  is safe (ADR-010).
+- **Atlas `0.0.0.0/0`** — defense-in-depth-light, deliberately. M0
+  doesn't offer Private Endpoint, free PaaS hosts don't expose
+  static IPs. Mitigations: scoped DB user (no `atlasAdmin` in
+  prod), long random password, SCRAM-SHA-256 + TLS, post-delivery
+  password rotation. Production-grade I'd self-host the Mongo on
+  the same VPC or pay for M10 + Private Endpoint.
+- **No multi-region replicas** — single-instance demo. The
+  scale-out story is in the code (Redis SETNX lock + per-user
+  idempotency UNIQUE — see ADR-003 / ADR-009) and is reproducible
+  locally with `docker compose` plus a second Fastify process; it
+  wasn't worth the paid tier just to demonstrate it live.
+
+The image is built from the repo's `Dockerfile` (multi-stage Bun
+1.3-alpine, ~206 MB final). `bun install --frozen-lockfile` runs in
+the deps stage; runtime stage strips tests, docs, benchmarks via
+`.dockerignore`. No TS build step — Bun runs `src/server.ts`
+directly. `EXPOSE 3000`, but Render injects its own `$PORT` and the
+Zod env loader coerces it.
 
 ## Production cron — weekly distribution
 
