@@ -123,6 +123,11 @@ bun run db:distribute  # Manual prize distribution
 bun run seed           # Default 100k users, pass N for more
 ```
 
+`bun run seed` refuses to run against a managed database (Neon, Atlas,
+Upstash, Render Postgres) by default — guard against accidentally
+dropping fake data on a production cluster. To seed a demo deploy on
+purpose, set `SEED_ALLOW_MANAGED=1`.
+
 ## Benchmark
 
 Numbers below were measured with [k6](https://k6.io/) against this API

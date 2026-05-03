@@ -36,9 +36,19 @@ import { leaderboardKey, poolKey } from '../src/services/redis-keys.ts'
 
 const DATABASE_URL = process.env['DATABASE_URL'] ?? ''
 const MANAGED_HOSTS = ['neon.tech', 'amazonaws.com', 'mongodb.net', 'upstash.io', 'render.com']
+const ALLOW_MANAGED = process.env['SEED_ALLOW_MANAGED'] === '1'
 for (const host of MANAGED_HOSTS) {
   if (DATABASE_URL.includes(host)) {
-    console.error(`[seed] refusing to run: DATABASE_URL points at managed provider (${host}).`)
+    if (ALLOW_MANAGED) {
+      console.warn(
+        `[seed] SEED_ALLOW_MANAGED=1 set — bypassing managed-host guard for ${host}. Make sure this is intentional.`,
+      )
+      break
+    }
+    console.error(
+      `[seed] refusing to run: DATABASE_URL points at managed provider (${host}).\n` +
+        `[seed] If you really mean to seed a managed database (e.g. demo deploy), re-run with SEED_ALLOW_MANAGED=1.`,
+    )
     process.exit(2)
   }
 }
