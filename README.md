@@ -1,5 +1,7 @@
 # Panteon Leaderboard API
 
+[![ci](https://github.com/mAkifArs/panteon-leaderboard-api/actions/workflows/ci.yml/badge.svg)](https://github.com/mAkifArs/panteon-leaderboard-api/actions/workflows/ci.yml)
+
 Backend for a weekly leaderboard in an idle-game economy. Built for the
 Panteon Games full-stack case study. Frontend lives in a separate repo
 (see [ADR-002](docs/adr/ADR-002-separate-repositories.md)).

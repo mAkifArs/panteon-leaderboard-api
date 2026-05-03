@@ -1,0 +1,101 @@
+# Continuous integration — runs on every push to main and on PRs.
+#
+# Spins up Postgres 16, Redis 7, Mongo 7 as service containers
+# (the same versions docker-compose.yml uses locally) so the
+# integration tests under src/**/__tests__/*.integration.test.ts
+# can talk to real datastores. The test suite refuses to mock
+# them — see CLAUDE.md and the testing-patterns skill.
+#
+# Why a single job: the test suite is fast (~10s) and the
+# matrix of "lint, then typecheck, then migrate, then test" is
+# strictly sequential — tests need migrations applied. Splitting
+# the steps across jobs would force re-checkout + re-install
+# for each, which costs more wall-clock than it saves.
+#
+# Concurrency: a fresh push cancels an in-flight run on the same
+# ref so a rapid `git push --force` train doesn't pile up.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint + typecheck + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: leaderboard
+          POSTGRES_PASSWORD: leaderboard
+          POSTGRES_DB: leaderboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' | grep 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      # Service containers expose default ports on localhost. Same
+      # credentials as docker-compose.yml so test fixtures don't
+      # need a CI-specific branch.
+      DATABASE_URL: postgres://leaderboard:leaderboard@localhost:5432/leaderboard
+      REDIS_URL: redis://localhost:6379
+      MONGO_URL: mongodb://localhost:27017
+      MONGO_DB: leaderboard
+      NODE_ENV: test
+      LOG_LEVEL: warn
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3'
+
+      - run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Migrate
+        run: bun run db:migrate
+
+      - name: Test
+        run: bun run test
