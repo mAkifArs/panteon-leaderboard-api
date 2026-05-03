@@ -249,10 +249,17 @@ managed services, all in the same AWS region (Frankfurt
 
 - **API spin-down after 15 min idle** — Render free instances sleep
   on inactivity and the next cold start is ~30s. The default
-  liveness probe on `/health` plus an external pinger (e.g.
-  UptimeRobot every 5 min) keeps the instance warm during demos.
-  `/health` is exempt from rate limiting precisely so this pattern
-  is safe (ADR-010).
+  liveness probe on `/health` plus an external pinger
+  ([UptimeRobot](https://stats.uptimerobot.com/6XDNU34Zf7) here)
+  keeps the instance warm during demos. `/health` is exempt from
+  rate limiting precisely so this pattern is safe (ADR-010). Two
+  unrelated free-tier limits line up usefully: UptimeRobot free
+  enforces a **5-minute minimum** check interval (paid plans go to
+  60s), and Render's sleep threshold is **15 minutes**. Five is
+  below fifteen, so a free pinger keeps a free API hot — no upgrade
+  on either side. Documented because this is the kind of
+  constraint pairing you only notice when you're actually trying to
+  ship on $0/month.
 - **Atlas `0.0.0.0/0`** — defense-in-depth-light, deliberately. M0
   doesn't offer Private Endpoint, free PaaS hosts don't expose
   static IPs. Mitigations: scoped DB user (no `atlasAdmin` in
