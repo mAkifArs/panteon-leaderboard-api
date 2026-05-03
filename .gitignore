@@ -53,3 +53,6 @@ tmp/
 
 # Ephemeral delivery checklist — local only, not part of the repo
 DELIVERY_TODO.md
+
+# Claude Code worktree dir — local agent scratch space
+.claude/worktrees/
