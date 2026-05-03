@@ -15,6 +15,37 @@ Free-tier instance — first request after 15 min of inactivity may take
 ~30s to spin up. See [Production deployment](#production-deployment)
 for the full host layout.
 
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    Client["Frontend<br/>Cloudflare Pages"]
+    Robot["UptimeRobot<br/>keep-warm 5 min"]
+    Cron["GitHub Actions<br/>Mon 00:05 UTC distribute<br/>Mon 01:05 UTC watchdog"]
+
+    subgraph eu["AWS Frankfurt — eu-central-1"]
+        API["Fastify API<br/>Render (Bun)"]
+        PG[("PostgreSQL<br/>Neon — money, append-only ledger")]
+        Redis[("Redis<br/>Upstash — hot leaderboard, lock, pool")]
+        Mongo[("MongoDB<br/>Atlas M0 — profiles, snapshots, audit")]
+    end
+
+    Client -- HTTPS / JSON --> API
+    Robot -. /health every 5 min .-> API
+    API -- earnings INSERT, ranking SELECT --> PG
+    API -- ZINCRBY, ZREVRANGE, INCRBY --> Redis
+    API -- profile lookup --> Mongo
+    Cron -. weekly distribute .-> PG
+    Cron -. weekly distribute .-> Redis
+    Cron -. weekly distribute .-> Mongo
+    Cron -. watchdog SELECT status .-> PG
+```
+
+Solid arrows = hot path (per request). Dotted arrows = operational
+(scheduled jobs, monitoring). Three managed services + the API + the
+frontend all sit in or near `eu-central-1` so cross-DB latency in the
+hot path stays under 5 ms; see [Production deployment](#production-deployment).
+
 ## Three databases, three jobs
 
 The brief mandates all three. Each one owns a different problem:
