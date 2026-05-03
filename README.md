@@ -361,6 +361,86 @@ bun run check:last-week 2026-W17     # exit 0 if distributed, 1 otherwise
 
 The watchdog only needs `DATABASE_URL` — it never touches Redis or Mongo.
 
+### Reviewer's 5-minute verification
+
+If you just want to see the system working without cloning anything,
+the live deploy already has a 100k-user dataset seeded for the
+current ISO week and two real GitHub Actions runs in the history.
+
+**1. Look at the live data.**
+
+```bash
+curl 'https://panteon-leaderboard-api.onrender.com/leaderboard/top?limit=5'
+```
+
+Returns `meta.isoWeek` (current week, e.g. `2026-W18`),
+`meta.pool` as a decimal-string BigInt, and the top-5 entries
+with `rank`, `score`, `username`, `country`. Switch the week
+parameter to compare:
+
+```bash
+curl '...top?isoWeek=2026-W18'   # current — populated
+curl '...top?isoWeek=2026-W19'   # next — empty (pool 0, no entries)
+```
+
+Two queries, same endpoint, different sorted set: that's the
+"automatic weekly reset" — no code path resets anything, the
+ISO-week key in `lb:week:<isoWeek>` simply rolls over and the new
+week starts cold by construction (`src/lib/iso-week.ts:24-43`).
+
+**2. Watch a rank update in real time.**
+
+Pick any sample user and credit an earning. The `Idempotency-Key`
+is mandatory (per-user dedup, ADR-009):
+
+```bash
+curl -X POST https://panteon-leaderboard-api.onrender.com/earnings \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: reviewer-demo-1' \
+  -d '{"userId":"seed-0046289","amount":"99999999"}'
+```
+
+Response includes `newRank` (the user's rank *after* this earning
+landed in Redis) and `pool.amount` (the live counter, +2% of your
+amount). Replay the same `Idempotency-Key` — `isReplay: true`,
+nothing double-counted.
+
+**3. See the cron actually fire.**
+
+The repo is public, so are the GitHub Actions runs. Two real
+manual triggers are visible in the history:
+
+- distribution: <https://github.com/mAkifArs/panteon-leaderboard-api/actions/runs/25275573413>
+  → status `success`, exit code 0, the same `bun run db:distribute`
+  the Monday cron will call. The script targets the *previous* ISO
+  week (`scripts/distribute.ts:30`), so on a freshly-seeded current
+  week it logs `skipped: no-earnings` and writes a trivially-distributed
+  row to `weekly_pools`.
+- watchdog: <https://github.com/mAkifArs/panteon-leaderboard-api/actions/runs/25275707723>
+  → status `success`, single read-only `SELECT` confirming
+  `weekly_pools.status = 'distributed'` for the prior week.
+
+**4. Reproduce locally if you want to drive a real distribution.**
+
+```bash
+git clone https://github.com/mAkifArs/panteon-leaderboard-api
+cd panteon-leaderboard-api
+docker compose up -d
+bun install
+bun run db:migrate
+bun run seed                      # 1000 users by default
+bun run db:distribute 2026-W18    # explicit week, real prize_payouts
+bun run test                      # 90+ tests, 4 integration suites
+```
+
+The integration tests
+(`src/services/__tests__/distribution.integration.test.ts`,
+`distribution.mongo.integration.test.ts`,
+`earnings.integration.test.ts`,
+`__tests__/whale-end-to-end.integration.test.ts`)
+exercise the lock + transaction + rank computation + Mongo audit
+end-to-end against real datastores.
+
 ## Runbook — Redis after-PG write failures
 
 `POST /earnings` writes Postgres first then best-effort Redis. If
