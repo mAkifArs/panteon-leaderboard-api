@@ -1,0 +1,51 @@
+# Build context exclusions — everything not needed at runtime.
+# Keep this list close to .gitignore but stricter: docs and tests
+# add MB to the build context with no runtime value.
+
+# VCS + IDE
+.git
+.gitignore
+.github
+.vscode
+.idea
+.claude
+
+# Deps + build artifacts (re-created in the deps stage)
+node_modules
+dist
+build
+*.tsbuildinfo
+
+# Env — secrets come from Koyeb env vars, never baked into the image
+.env
+.env.*
+!.env.example
+
+# Tests + benchmarks (not run in prod image)
+test
+**/__tests__
+benchmarks
+.bench
+vitest.config.ts
+eslint.config.js
+.prettierrc
+.prettierignore
+
+# Docs — case study, ADRs, journals; image stays slim
+docs
+README.md
+AI_WORKFLOW.md
+CLAUDE.md
+TIMING.md
+DELIVERY_TODO.md
+
+# Local infra
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# OS / editor noise
+.DS_Store
+*.swp
+*.swo
+*.log
