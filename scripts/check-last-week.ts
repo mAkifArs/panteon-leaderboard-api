@@ -33,8 +33,15 @@
  *   0 — OK (status === 'distributed')
  *   1 — watchdog tripped (row missing / status open / status distributing)
  *   2 — invalid argv format (matches scripts/distribute.ts convention)
+ *
+ * Why the postgres client is built inline instead of via getPostgres():
+ * the project-wide loadEnv() (src/config/env.ts) parses one schema with
+ * DATABASE_URL + REDIS_URL + MONGO_URL all required — fail-fast for
+ * server boot, where all three are needed. The watchdog is a single-DB
+ * read; honouring ADR-011's "secret surface is intentionally minimal —
+ * only DATABASE_URL" promise means bypassing that schema here.
  */
-import { closePostgres, getPostgres } from '../src/db/postgres.ts'
+import postgres from 'postgres'
 import { previousIsoWeek } from '../src/lib/iso-week.ts'
 
 async function main(): Promise<void> {
@@ -44,7 +51,13 @@ async function main(): Promise<void> {
     process.exit(2)
   }
 
-  const { pool } = getPostgres()
+  const databaseUrl = process.env['DATABASE_URL']
+  if (!databaseUrl) {
+    console.error('[watchdog] DATABASE_URL is not set')
+    process.exit(2)
+  }
+
+  const pool = postgres(databaseUrl, { max: 1, onnotice: () => undefined })
 
   try {
     const rows = await pool<{ status: string }[]>`
@@ -77,7 +90,7 @@ async function main(): Promise<void> {
     console.error(`[watchdog] FAIL ${isoWeek}: unexpected status=${status}`)
     process.exit(1)
   } finally {
-    await closePostgres()
+    await pool.end({ timeout: 5 })
   }
 }
 
