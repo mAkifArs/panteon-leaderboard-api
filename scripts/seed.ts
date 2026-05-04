@@ -222,13 +222,32 @@ function weekBounds(now: Date): { start: Date; end: Date } {
 // ---------------------------------------------------------------------------
 
 async function wipeWeek(isoWeek: string): Promise<void> {
-  const { db } = getPostgres()
+  const { db, pool } = getPostgres()
   const redis = getRedis()
   const { db: mongo } = getMongo()
 
   await db.execute(sql`DELETE FROM prize_payouts  WHERE iso_week = ${isoWeek}`)
-  await db.execute(sql`DELETE FROM earning_events WHERE iso_week = ${isoWeek}`)
+  // Wipe seed earning_events across *all* weeks, not just the
+  // current one. Required on tight-tier managed Postgres (Neon
+  // free = 512 MB project cap): keeping last week's 100k seed
+  // alongside this week's blows the cap. Real (non-seed) events
+  // are untouched. Audit rows in prize_payouts / weekly_pools
+  // for past weeks stay intact (no FK from them to earning_events).
+  await db.execute(sql`DELETE FROM earning_events WHERE idempotency_key LIKE 'seed-%'`)
   await db.execute(sql`DELETE FROM weekly_pools   WHERE iso_week = ${isoWeek}`)
+
+  // Reclaim physical storage immediately so the subsequent bulk
+  // insert fits inside the project's size cap. Best-effort —
+  // pooled connections (PgBouncer) reject VACUUM; autovacuum
+  // will catch up either way.
+  try {
+    await pool.unsafe('VACUUM (FULL, ANALYZE) earning_events')
+  } catch (err) {
+    console.warn(
+      '[seed] VACUUM FULL skipped:',
+      err instanceof Error ? err.message : String(err),
+    )
+  }
 
   await Promise.all([redis.del(leaderboardKey(isoWeek)), redis.del(poolKey(isoWeek))])
 
