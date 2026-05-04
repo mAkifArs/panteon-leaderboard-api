@@ -307,7 +307,10 @@ async function main(): Promise<void> {
         amount: e.amount.toString(),
         iso_week: isoWeek,
         earned_at: e.earnedAt.toISOString(),
-        idempotency_key: `seed-${p.userId}-${String(idx).padStart(3, '0')}`,
+        // Include isoWeek so re-seeding a new week doesn't collide
+        // with a previous week's idempotency keys — UNIQUE
+        // (user_id, idempotency_key) is global, not week-scoped.
+        idempotency_key: `seed-${isoWeek}-${p.userId}-${String(idx).padStart(3, '0')}`,
       })
     })
     if (batch.length >= BATCH) {
