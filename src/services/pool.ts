@@ -45,12 +45,19 @@ export async function getCurrentPool(redis: Redis, db: Database, isoWeek: string
     log.warn({ err, isoWeek }, 'redis GET failed; falling through to PG')
   }
 
-  const rows = await db.execute<{ pool: string | null }>(sql`
-    SELECT GREATEST(COALESCE(SUM(amount), 0) * 2 / 100, 0)::text AS pool
+  // SUM(bigint) returns numeric in PG; dividing by 100 inside SQL
+  // adds default decimal scale (e.g. "4.0000000000000000"), which
+  // BigInt() rejects. We pull the bigint sum out as a clean integer
+  // string and do the 2% math in JS BigInt — same shape as
+  // distribution.ts so the two paths can never drift apart on the
+  // canonical pool formula.
+  const rows = await db.execute<{ total_earnings: string | null }>(sql`
+    SELECT COALESCE(SUM(amount), 0)::text AS total_earnings
     FROM earning_events
     WHERE iso_week = ${isoWeek}
   `)
-  const pool = BigInt(rows[0]?.pool ?? '0')
+  const totalEarnings = BigInt(rows[0]?.total_earnings ?? '0')
+  const pool = totalEarnings > 0n ? (totalEarnings * 2n) / 100n : 0n
 
   // Lazy backfill — best-effort + SET NX. If Redis is still down we
   // log and give up; if a parallel recordEarning INCRBY beat us to
