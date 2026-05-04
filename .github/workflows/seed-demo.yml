@@ -1,0 +1,54 @@
+# Demo seed — manual trigger only.
+#
+# Populates the current ISO week with fake leaderboard data so the
+# public demo always has something to show, including immediately
+# after a Monday roll-over when the new week is empty.
+#
+# The seed script (`scripts/seed.ts`) writes to all three stores
+# (Postgres earning_events, Redis ZSET + pool counter, Mongo
+# player_profiles) and is re-runnable: it wipes seed-prefixed data
+# for the current week first. Real (non-seed) earnings for the same
+# week are also wiped because the wipe is per-iso_week — that is
+# acceptable for a demo deploy but would NOT be acceptable on a
+# real production cluster. See scripts/seed.ts:224.
+#
+# Managed-host guard: seed.ts refuses to run against neon/upstash/
+# atlas/render by default. SEED_ALLOW_MANAGED=1 bypasses it. We
+# pass it here because this workflow exists *specifically* to seed
+# managed demo infra.
+#
+# Secret surface: same as weekly-distribution.yml. No new secrets.
+
+name: seed-demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      size:
+        description: 'Number of fake users to seed (1..1000000). Accepts 1k, 10k, 1m suffixes.'
+        required: false
+        default: '1000'
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3'
+
+      - run: bun install --frozen-lockfile
+
+      - name: Run seed
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          MONGO_URL: ${{ secrets.MONGO_URL }}
+          MONGO_DB: ${{ secrets.MONGO_DB }}
+          SEED_ALLOW_MANAGED: '1'
+          NODE_ENV: production
+          LOG_LEVEL: info
+        run: bun run seed ${{ github.event.inputs.size }}
